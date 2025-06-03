@@ -1,61 +1,92 @@
 use bevy::prelude::*;
+use bevy_persistent::prelude::*;
+use serde::{Deserialize, Serialize};
 
-fn main() {
-    let mut app = App::new();
-    app.add_plugins(DefaultPlugins).add_systems(Startup, setup);
-    app.run();
+use menu::menu_plugin;
+use splash::splash_plugin;
+
+mod menu;
+mod splash;
+
+#[derive(Debug, Resource, Serialize, Deserialize)]
+struct Settings {
+    up:       KeyCode,
+    down:     KeyCode,
+    left:     KeyCode,
+    right:    KeyCode,
+    jump:     KeyCode,
+    interact: KeyCode,
+
+    voice_vol: u32,
+    sound_vol: u32,
+    music_vol: u32,
 }
 
-const X_EXTENT: f32 = 900.;
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            up:       KeyCode::KeyW,
+            down:     KeyCode::KeyS,
+            left:     KeyCode::KeyA,
+            right:    KeyCode::KeyD,
+            jump:     KeyCode::Space,
+            interact: KeyCode::KeyE,
 
-fn setup(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
-    commands.spawn(Camera2d);
-
-    let shapes = [
-        meshes.add(Circle::new(50.0)),
-        meshes.add(CircularSector::new(50.0, 1.0)),
-        meshes.add(CircularSegment::new(50.0, 1.25)),
-        meshes.add(Ellipse::new(25.0, 50.0)),
-        meshes.add(Annulus::new(25.0, 50.0)),
-        meshes.add(Capsule2d::new(25.0, 50.0)),
-        meshes.add(Rhombus::new(75.0, 100.0)),
-        meshes.add(Rectangle::new(50.0, 100.0)),
-        meshes.add(RegularPolygon::new(50.0, 6)),
-        meshes.add(Triangle2d::new(
-            Vec2::Y * 50.0,
-            Vec2::new(-50.0, -50.0),
-            Vec2::new(50.0, -50.0),
-        )),
-    ];
-    let num_shapes = shapes.len();
-
-    for (i, shape) in shapes.into_iter().enumerate() {
-        // Distribute colors evenly across the rainbow.
-        let color = Color::hsl(360. * i as f32 / num_shapes as f32, 0.95, 0.7);
-
-        commands.spawn((
-            Mesh2d(shape),
-            MeshMaterial2d(materials.add(color)),
-            Transform::from_xyz(
-                // Distribute shapes from -X_EXTENT/2 to +X_EXTENT/2.
-                -X_EXTENT / 2. + i as f32 / (num_shapes - 1) as f32 * X_EXTENT,
-                0.0,
-                0.0,
-            ),
-        ));
+            voice_vol: 100,
+            sound_vol: 100,
+            music_vol: 100,
+        }
     }
 }
 
-// #[cfg(not(target_arch = "wasm32"))]
-// fn toggle_wireframe(
-//     mut wireframe_config: ResMut<Wireframe2dConfig>,
-//     keyboard: Res<ButtonInput<KeyCode>>,
-// ) {
-//     if keyboard.just_pressed(KeyCode::Space) {
-//         wireframe_config.global = !wireframe_config.global;
-//     }
-// }
+#[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
+enum GameState {
+    #[default]
+    Splash,
+    Menu,
+    Game,
+}
+
+fn main() {
+    let mut app = App::new();
+    app.add_plugins(DefaultPlugins)
+        .add_plugins((menu_plugin, splash_plugin))
+        .init_state::<GameState>()
+        .add_systems(Startup, setup);
+    app.run();
+}
+
+fn setup(mut commands: Commands) {
+    commands.spawn(Camera2d);
+ 
+    use bevy_persistent::Storage;
+    let name = "settings";
+    let format = StorageFormat::Toml;
+    let storage = Storage::LocalStorage {
+        key: "settings".to_owned(),
+    };
+    let loaded = true;
+    let default = Settings::default();
+    let revertible = false;
+    let revert_to_default_on_deserialization_errors = false;
+
+    commands.insert_resource(
+        Persistent::new(
+            name,
+            format,
+            storage,
+            loaded,
+            default,
+            revertible,
+            revert_to_default_on_deserialization_errors,
+        )
+        .expect("failed to initialize settings"),
+    );
+}
+
+// Generic system that takes a component as a parameter, and will despawn all entities with that component
+fn despawn_screen<T: Component>(to_despawn: Query<Entity, With<T>>, mut commands: Commands) {
+    for entity in &to_despawn {
+        commands.entity(entity).despawn();
+    }
+}
