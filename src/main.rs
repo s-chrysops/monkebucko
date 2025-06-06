@@ -8,6 +8,7 @@ use splash::splash_plugin;
 mod menu;
 mod splash;
 
+
 #[derive(Debug, Resource, Serialize, Deserialize)]
 struct Settings {
     up:       KeyCode,
@@ -17,7 +18,6 @@ struct Settings {
     jump:     KeyCode,
     interact: KeyCode,
 
-    voice_vol: u32,
     sound_vol: u32,
     music_vol: u32,
 }
@@ -32,9 +32,8 @@ impl Default for Settings {
             jump:     KeyCode::Space,
             interact: KeyCode::KeyE,
 
-            voice_vol: 100,
-            sound_vol: 100,
-            music_vol: 100,
+            sound_vol: 10,
+            music_vol: 10,
         }
     }
 }
@@ -58,7 +57,7 @@ fn main() {
 
 fn setup(mut commands: Commands) {
     commands.spawn(Camera2d);
- 
+
     use bevy_persistent::Storage;
     let name = "settings";
     let format = StorageFormat::Toml;
