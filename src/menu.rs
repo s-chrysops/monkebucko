@@ -6,7 +6,7 @@ use bevy::{
 };
 use bevy_persistent::Persistent;
 
-use super::{GameState, Settings, despawn_screen};
+use super::{AppState, Settings, despawn_screen};
 
 const TEXT_COLOR: Color = Color::Srgba(WHITE_SMOKE);
 
@@ -53,50 +53,27 @@ struct RadioValue(u32);
 #[derive(Resource)]
 struct SaveSystemId(SystemId);
 
-// This system handles changing all buttons color based on mouse interaction
-fn button_system(
-    mut interaction_query: Query<
-        (&Interaction, &mut BackgroundColor, Option<&SelectedOption>),
-        (Changed<Interaction>, With<Button>),
-    >,
-) {
-    for (interaction, mut background_color, selected) in &mut interaction_query {
-        *background_color = match (*interaction, selected) {
-            (Interaction::Pressed, _) | (Interaction::None, Some(_)) => PRESSED_BUTTON.into(),
-            (Interaction::Hovered, Some(_)) => HOVERED_PRESSED_BUTTON.into(),
-            (Interaction::Hovered, None) => HOVERED_BUTTON.into(),
-            (Interaction::None, None) => NORMAL_BUTTON.into(),
-        }
-    }
-}
+pub fn menu_plugin(app: &mut App) {
+    let save_system_id = app.register_system(save_settings);
 
-// This system updates the settings when a new value for a setting is selected, and marks
-// the button as the one currently selected
-fn radio_settings_system(
-    interaction_query: Query<
-        (&Interaction, Entity, &RadioSetting),
-        (Changed<Interaction>, With<Button>),
-    >,
-    mut selected_query: Query<(Entity, &mut BackgroundColor, &RadioSetting), With<SelectedOption>>,
-    mut commands: Commands,
-) {
-    // let (previous_button, mut previous_button_color) = selected_query.into_inner();
-    for (interaction, current_button, current_radio_type) in &interaction_query {
-        let (previous_button, mut previous_button_color, _setvol) = selected_query
-            .iter_mut()
-            .find(|(_entity, _color, previous_radio_type)| {
-                previous_radio_type == &current_radio_type
-            })
-            .unwrap();
-
-        if *interaction != Interaction::Pressed || current_button == previous_button {
-            continue;
-        }
-
-        *previous_button_color = NORMAL_BUTTON.into();
-        commands.entity(previous_button).remove::<SelectedOption>();
-        commands.entity(current_button).insert(SelectedOption);
-    }
+    app.init_state::<MenuState>()
+        .add_systems(OnEnter(AppState::Menu), menu_setup)
+        .add_systems(OnEnter(MenuState::Main), main_menu_setup)
+        .add_systems(OnExit(MenuState::Main), despawn_screen::<OnMainMenuScreen>)
+        .add_systems(OnEnter(MenuState::Settings), settings_menu_setup)
+        .add_systems(
+            OnExit(MenuState::Settings),
+            despawn_screen::<OnSettingsScreen>,
+        )
+        .add_systems(
+            Update,
+            (menu_action, button_system).run_if(in_state(AppState::Menu)),
+        )
+        .add_systems(
+            Update,
+            radio_settings_system.run_if(in_state(MenuState::Settings)),
+        )
+        .insert_resource(SaveSystemId(save_system_id));
 }
 
 fn menu_action(
@@ -106,7 +83,7 @@ fn menu_action(
     >,
     mut app_exit_events: EventWriter<AppExit>,
     mut menu_state: ResMut<NextState<MenuState>>,
-    mut game_state: ResMut<NextState<GameState>>,
+    mut game_state: ResMut<NextState<AppState>>,
     mut commands: Commands,
     save_system_id: Res<SaveSystemId>,
 ) {
@@ -119,7 +96,7 @@ fn menu_action(
                 app_exit_events.write(AppExit::Success);
             }
             MenuButtonAction::Play => {
-                game_state.set(GameState::Game);
+                game_state.set(AppState::Game);
                 menu_state.set(MenuState::Disabled);
             }
             MenuButtonAction::Settings => menu_state.set(MenuState::Settings),
@@ -131,29 +108,6 @@ fn menu_action(
             MenuButtonAction::BackToMainMenu => menu_state.set(MenuState::Main),
         }
     }
-}
-
-pub fn menu_plugin(app: &mut App) {
-    let save_system_id = app.register_system(save_settings);
-
-    app.init_state::<MenuState>()
-        .add_systems(OnEnter(GameState::Menu), menu_setup)
-        .add_systems(OnEnter(MenuState::Main), main_menu_setup)
-        .add_systems(OnExit(MenuState::Main), despawn_screen::<OnMainMenuScreen>)
-        .add_systems(OnEnter(MenuState::Settings), settings_menu_setup)
-        .add_systems(
-            OnExit(MenuState::Settings),
-            despawn_screen::<OnSettingsScreen>,
-        )
-        .add_systems(
-            Update,
-            (menu_action, button_system).run_if(in_state(GameState::Menu)),
-        )
-        .add_systems(
-            Update,
-            radio_settings_system.run_if(in_state(MenuState::Settings)),
-        )
-        .insert_resource(SaveSystemId(save_system_id));
 }
 
 fn menu_setup(mut menu_state: ResMut<NextState<MenuState>>) {
@@ -463,6 +417,52 @@ fn settings_menu_setup(
         sound_volume_node,
         navigation_node,
     ]);
+}
+
+// This system handles changing all buttons color based on mouse interaction
+fn button_system(
+    mut interaction_query: Query<
+        (&Interaction, &mut BackgroundColor, Option<&SelectedOption>),
+        (Changed<Interaction>, With<Button>),
+    >,
+) {
+    for (interaction, mut background_color, selected) in &mut interaction_query {
+        *background_color = match (*interaction, selected) {
+            (Interaction::Pressed, _) | (Interaction::None, Some(_)) => PRESSED_BUTTON.into(),
+            (Interaction::Hovered, Some(_)) => HOVERED_PRESSED_BUTTON.into(),
+            (Interaction::Hovered, None) => HOVERED_BUTTON.into(),
+            (Interaction::None, None) => NORMAL_BUTTON.into(),
+        }
+    }
+}
+
+// This system updates the settings when a new value for a setting is selected, and marks
+// the button as the one currently selected
+fn radio_settings_system(
+    interaction_query: Query<
+        (&Interaction, Entity, &RadioSetting),
+        (Changed<Interaction>, With<Button>),
+    >,
+    mut selected_query: Query<(Entity, &mut BackgroundColor, &RadioSetting), With<SelectedOption>>,
+    mut commands: Commands,
+) {
+    // let (previous_button, mut previous_button_color) = selected_query.into_inner();
+    for (interaction, current_button, current_radio_type) in &interaction_query {
+        let (previous_button, mut previous_button_color, _setvol) = selected_query
+            .iter_mut()
+            .find(|(_entity, _color, previous_radio_type)| {
+                previous_radio_type == &current_radio_type
+            })
+            .unwrap();
+
+        if *interaction != Interaction::Pressed || current_button == previous_button {
+            continue;
+        }
+
+        *previous_button_color = NORMAL_BUTTON.into();
+        commands.entity(previous_button).remove::<SelectedOption>();
+        commands.entity(current_button).insert(SelectedOption);
+    }
 }
 
 fn save_settings(
