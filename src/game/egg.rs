@@ -39,9 +39,6 @@ impl Default for CameraSensitivity {
     }
 }
 
-#[derive(Debug, Component)]
-struct WorldModelCamera;
-
 #[derive(Resource)]
 struct SpawnStarSystem(SystemId);
 
@@ -55,11 +52,20 @@ pub fn egg_plugin(app: &mut App) {
     ))
     .add_systems(
         OnEnter(GameState::Egg),
-        (spawn_player, spawn_world, spawn_stars, cursor_grab),
+        (
+            spawn_player,
+            spawn_world,
+            spawn_stars,
+            cursor_grab,
+            toggle_camera_2d,
+        ),
     )
+    .add_systems(Update, move_stars.run_if(in_state(GameState::Egg)))
     .add_systems(
         Update,
-        (move_player, move_stars).run_if(in_state(GameState::Egg)),
+        move_player
+            .run_if(in_state(GameState::Egg))
+            .run_if(in_state(MovementState::Enabled)),
     )
     // .insert_resource(DebugPickingMode::Normal)
     .insert_resource(SpawnStarSystem(spawn_star_system));
@@ -68,9 +74,7 @@ pub fn egg_plugin(app: &mut App) {
 // #[derive(Debug, Component, Deref, DerefMut)]
 // struct Velocity(Vec3);
 
-fn spawn_player(mut commands: Commands, camera_old: Single<Entity, With<Camera2d>>) {
-    commands.entity(camera_old.into_inner()).despawn();
-
+fn spawn_player(mut commands: Commands) {
     commands.spawn((
         OnEggScene,
         Player,
@@ -79,7 +83,6 @@ fn spawn_player(mut commands: Commands, camera_old: Single<Entity, With<Camera2d
         Transform::from_xyz(0.0, 1.0, 0.0),
         Visibility::default(),
         children![(
-            WorldModelCamera,
             Camera3d::default(),
             Camera {
                 hdr: true,
@@ -159,7 +162,7 @@ fn move_player(
         next_position -= left;
     }
     if key_input.pressed(settings.jump) {
-        todo!()
+        info!("JUMP!");
     }
 
     transform.translation = next_position.clamp(ROOM_BOUNDARY_MIN, ROOM_BOUNDARY_MAX);
@@ -226,24 +229,27 @@ fn spawn_world(
     });
 
     // Window Glass
-    commands.spawn((
-        OnEggScene,
-        Mesh3d(meshes.add(Cuboid::new(2.02, 1.202, 0.03))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::WHITE,
-            specular_transmission: 0.95,
-            diffuse_transmission: 1.0,
-            thickness: 0.03,
-            ior: 1.49,
-            perceptual_roughness: 0.0,
-            reflectance: 0.5,
-            ..default()
-        })),
-        Transform::from_xyz(0.3, 1.4, 1.525),
-        EntityInteraction::Text(
-            "Through eons of void, these photons birth from fusion, lay to rest in you.",
-        ),
-    ));
+    commands
+        .spawn((
+            OnEggScene,
+            Mesh3d(meshes.add(Cuboid::new(2.02, 1.202, 0.03))),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::WHITE,
+                specular_transmission: 0.95,
+                diffuse_transmission: 1.0,
+                thickness: 0.03,
+                ior: 1.49,
+                perceptual_roughness: 0.0,
+                reflectance: 0.5,
+                ..default()
+            })),
+            Transform::from_xyz(0.3, 1.4, 1.525),
+            EntityInteraction::Text(
+                "Through eons of void, these photons birth from fusion, lay to rest in you.",
+            ),
+        ))
+        .observe(over_interactables)
+        .observe(out_interactables);
 
     commands.spawn((
         OnEggScene,
@@ -314,10 +320,11 @@ fn spawn_world(
 #[derive(Debug, Component)]
 struct Star(f32);
 
-const STAR_AMOUNT: usize = 200;
+const STAR_AMOUNT: usize = 500;
+const BACK_STAR_AMOUNT: usize = 300;
 const MIN_STAR_HEIGHT: f32 = -15.0;
 const MAX_STAR_HEIGHT: f32 = 30.0;
-const MIN_STAR_LUMINANCE: f32 = 20.0;
+const MIN_STAR_LUMINANCE: f32 = 2.0;
 const MAX_STAR_LUMINANCE: f32 = 200.0;
 const MIN_STAR_SPEED: f32 = 0.01;
 const MAX_STAR_SPEED: f32 = 0.5;
@@ -338,7 +345,11 @@ fn spawn_star(
     let angle = random_range(rng.next_u32(), 0.0, std::f32::consts::PI);
     let mut height = MAX_STAR_HEIGHT;
     let lum = random_range(rng.next_u32(), MIN_STAR_LUMINANCE, MAX_STAR_LUMINANCE);
-    let speed = random_range(rng.next_u32(), MIN_STAR_SPEED, MAX_STAR_SPEED);
+    let speed = if *count > BACK_STAR_AMOUNT {
+        random_range(rng.next_u32(), MIN_STAR_SPEED.sqrt(), MAX_STAR_SPEED.sqrt()).powi(2)
+    } else {
+        0.0
+    };
 
     // Initial stars
     if *count != STAR_AMOUNT {
@@ -376,6 +387,10 @@ fn move_stars(
             commands.run_system(spawn_star.0);
         }
     }
+}
+
+fn toggle_camera_2d(camera_2d: Single<&mut Camera, With<Camera2d>>) {
+    camera_2d.into_inner().is_active ^= true;
 }
 
 fn cursor_grab(q_windows: Single<&mut Window, With<PrimaryWindow>>) {
