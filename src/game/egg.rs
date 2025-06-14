@@ -53,7 +53,11 @@ pub fn egg_plugin(app: &mut App) {
     )
     .add_systems(
         OnExit(GameState::Egg),
-        (despawn_screen::<OnEggScene>, despawn_screen::<Temp>),
+        (
+            despawn_screen::<OnEggScene>,
+            despawn_screen::<Temp>,
+            cursor_ungrab,
+        ),
     )
     .add_systems(Update, move_stars.run_if(in_state(GameState::Egg)))
     .add_systems(
@@ -82,6 +86,7 @@ fn spawn_player(mut commands: Commands) {
         Transform::from_xyz(0.0, 1.0, 0.0),
         Visibility::default(),
         children![(
+            WorldCamera,
             MeshPickingCamera,
             Camera3d::default(),
             Camera {
@@ -570,6 +575,7 @@ fn egg_special(
 
             if key_input.just_pressed(settings.interact) {
                 commands.set_state(GameState::TopDown);
+                commands.set_state(MovementState::Enabled);
             }
         }
     }
@@ -581,7 +587,7 @@ fn cursor_grab(q_windows: Single<&mut Window, With<PrimaryWindow>>) {
     primary_window.cursor_options.visible = false;
 }
 
-fn _cursor_ungrab(q_windows: Single<&mut Window, With<PrimaryWindow>>) {
+fn cursor_ungrab(q_windows: Single<&mut Window, With<PrimaryWindow>>) {
     let mut primary_window = q_windows.into_inner();
     primary_window.cursor_options.grab_mode = CursorGrabMode::None;
     primary_window.cursor_options.visible = true;

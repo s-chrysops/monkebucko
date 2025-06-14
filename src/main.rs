@@ -4,6 +4,7 @@ use bevy::{
     render::{camera::CameraOutputMode, render_resource::*, view::RenderLayers},
     window::WindowResolution,
 };
+use bevy_ecs_tiled::{TiledMapPlugin, TiledMapPluginConfig};
 use bevy_persistent::prelude::*;
 use bevy_rand::{plugin::EntropyPlugin, prelude::WyRand};
 use bevy_text_animation::TextAnimatorPlugin;
@@ -77,6 +78,9 @@ fn main() {
                 ..default()
             })
             .set(ImagePlugin::default_nearest()),
+        TiledMapPlugin(TiledMapPluginConfig {
+            tiled_types_export_file: None,
+        }),
         EntropyPlugin::<WyRand>::default(),
         MeshPickingPlugin,
         TextAnimatorPlugin,
@@ -90,10 +94,7 @@ fn main() {
     .run();
 }
 
-fn setup(
-    mut commands: Commands,
-    mut mesh_picking_settings: ResMut<MeshPickingSettings>,
-) {
+fn setup(mut commands: Commands, mut mesh_picking_settings: ResMut<MeshPickingSettings>) {
     commands.spawn((
         Camera2d,
         Camera {
@@ -113,7 +114,7 @@ fn setup(
     //     vleue_kinetoscope::AnimatedImageController::play(asset_server.load("test.gif")),
     //     bevy::render::view::RenderLayers::layer(1),
     // ));
-    
+
     mesh_picking_settings.require_markers = true;
 
     use bevy_persistent::Storage;

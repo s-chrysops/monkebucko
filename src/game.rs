@@ -4,8 +4,10 @@ use bevy_text_animation::*;
 
 use super::{AppState, Settings};
 use egg::egg_plugin;
+use topdown::topdown_plugin;
 
 mod egg;
+mod topdown;
 
 #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
 enum GameState {
@@ -25,8 +27,11 @@ enum MovementState {
 #[derive(Debug, Component)]
 struct Player;
 
+#[derive(Debug, Component)]
+struct WorldCamera;
+
 pub fn game_plugin(app: &mut App) {
-    app.add_plugins(egg_plugin)
+    app.add_plugins((egg_plugin, topdown_plugin))
         .init_state::<GameState>()
         .init_state::<MovementState>()
         .init_state::<InteractionState>()
