@@ -446,7 +446,6 @@ fn radio_settings_system(
     mut selected_query: Query<(Entity, &mut BackgroundColor, &RadioSetting), With<SelectedOption>>,
     mut commands: Commands,
 ) {
-    // let (previous_button, mut previous_button_color) = selected_query.into_inner();
     for (interaction, current_button, current_radio_type) in &interaction_query {
         let (previous_button, mut previous_button_color, _setvol) = selected_query
             .iter_mut()
@@ -477,7 +476,3 @@ fn save_settings(
     }
     settings.persist().expect("Failed writing settings to disk");
 }
-
-// fn access_settings(settings: Res<Persistent<Settings>>) -> &Settings {
-//     settings.
-// }

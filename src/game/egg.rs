@@ -25,11 +25,6 @@ const PICKABLE: Pickable = Pickable {
 #[derive(Debug, Component)]
 struct OnEggScene;
 
-// #[derive(Debug, Component)]
-// struct EntityInteraction{
-//     mode: EntityInteractionMode,
-// }
-
 #[derive(Debug, Component, Deref, DerefMut)]
 struct CameraSensitivity(Vec2);
 
@@ -54,13 +49,7 @@ pub fn egg_plugin(app: &mut App) {
 
     app.add_systems(
         OnEnter(GameState::Egg),
-        (
-            spawn_player,
-            spawn_world,
-            spawn_stars,
-            cursor_grab,
-            // toggle_camera_2d,
-        ),
+        (spawn_player, spawn_world, spawn_stars, cursor_grab),
     )
     .add_systems(
         OnExit(GameState::Egg),
@@ -77,21 +66,13 @@ pub fn egg_plugin(app: &mut App) {
         Update,
         egg_special.run_if(in_state(InteractionState::Special)),
     )
-    // .add_systems(
-    //     Update,
-    //     toggle_camera_2d.run_if(input_just_pressed(KeyCode::KeyQ)),
-    // )
     .insert_resource(SpawnStarSystem(spawn_star_system));
 }
 
 // #[derive(Debug, Component, Deref, DerefMut)]
 // struct Velocity(Vec3);
 
-fn spawn_player(
-    mut commands: Commands,
-    _camera_2d: Single<Entity, With<Camera2d>>,
-    // canvas: Single<&Sprite, With<Canvas>>,
-) {
+fn spawn_player(mut commands: Commands) {
     info!("Spawning player");
     commands.spawn((
         OnEggScene,
@@ -115,7 +96,6 @@ fn spawn_player(
                 fov: 70.0_f32.to_radians(),
                 ..default()
             }),
-            // Msaa::Off,
             RENDER_LAYER_WORLD,
         )],
     ));
@@ -203,14 +183,7 @@ fn spawn_world(
     let wall_west = meshes.add(Plane3d::new(Vec3::X, Vec2::splat(1.5)));
     let wall_east = meshes.add(Plane3d::new(Vec3::NEG_X, Vec2::splat(1.5)));
     let wall_north = meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(1.5)));
-    // let wall_south_upper = meshes.add(Plane3d::new(Vec3::NEG_Z, Vec2::new(1.5, 0.5)));
-    // let wall_south_lower = meshes.add(Plane3d::new(Vec3::NEG_Z, Vec2::new(1.5, 0.4)));
-    // let wall_south_right = meshes.add(Plane3d::new(Vec3::NEG_Z, Vec2::new(0.4, 0.6)));
-    // let wall_south_left = meshes.add(Plane3d::new(Vec3::NEG_Z, Vec2::new(0.1, 0.6)));
 
-    // let window_inner_upper = meshes.add(Plane3d::new(Vec3::NEG_Y, Vec2::new(1.0, 0.025)));
-    // let window_inner_right = meshes.add(Plane3d::new(Vec3::NEG_X, Vec2::new(0.6, 0.025)));
-    // let window_inner_left = meshes.add(Plane3d::new(Vec3::X, Vec2::new(0.6, 0.025)));
     let wall_south_upper = meshes.add(Cuboid::new(3.0, 1.0, 0.05));
     let wall_south_lower = meshes.add(Cuboid::new(3.0, 0.8, 0.05));
     let wall_south_right = meshes.add(Cuboid::new(0.8, 1.2, 0.05));
@@ -231,13 +204,6 @@ fn spawn_world(
         (wall_south_lower, (0.0, 0.4, 1.525)),
         (wall_south_right, (-1.1, 1.4, 1.525)),
         (wall_south_left, (1.4, 1.4, 1.525)),
-        // (wall_south_upper, (0.0, 2.5, 1.5)),
-        // (wall_south_lower, (0.0, 0.4, 1.5)),
-        // (wall_south_right, (-1.1, 1.4, 1.5)),
-        // (wall_south_left, (1.4, 1.4, 1.5)),
-        // (window_inner_upper, (0.3, 2.0, 1.525)),
-        // (window_inner_right, (1.3, 1.4, 1.525)),
-        // (window_inner_left, (-0.7, 1.4, 1.525)),
         (window_sill, (0.3, 0.8, 1.5)),
     ];
 
@@ -247,8 +213,6 @@ fn spawn_world(
             Mesh3d(mesh),
             MeshMaterial3d(material.clone()),
             Transform::from_xyz(x, y, z),
-            // bevy::render::view::NoFrustumCulling,
-            // Pickable::IGNORE,
         ));
     });
 
@@ -281,7 +245,6 @@ fn spawn_world(
         Mesh3d(bed),
         MeshMaterial3d(material.clone()),
         Transform::from_xyz(-0.3, 0.16, -1.0),
-        // Pickable::IGNORE,
     ));
 
     // commands.spawn((
@@ -300,8 +263,6 @@ fn spawn_world(
             ..default()
         },
         Transform::from_xyz(0.0, 1.4, 4.0),
-        // The light source illuminates both the world model and the view model.
-        // RenderLayers::from_layers(&[DEFAULT_RENDER_LAYER, VIEW_MODEL_RENDER_LAYER]),
     ));
 
     // Crack
@@ -416,7 +377,6 @@ fn spawn_star(
         Star(speed),
         Mesh3d(meshes.add(Circle::new(0.01))),
         MeshMaterial3d(material_emissive),
-        // Pickable::IGNORE,
         transform,
     ));
 }
@@ -442,13 +402,6 @@ struct Temp;
 struct EggSpecialDebugText;
 
 const EASE_DURATION: f32 = 3.0;
-// struct EaseTimer(Timer);
-
-// impl Default for EaseTimer {
-//     fn default() -> Self {
-//         Self(Timer::from_seconds(EASE_CAMERA_DURATION, TimerMode::Once))
-//     }
-// }
 
 struct CameraEase {
     timer: Timer,
@@ -529,30 +482,10 @@ fn egg_special(
             };
         }
         EggSpecialState::Force1 => {
-            if key_input.pressed(settings.jump) {
-                *debug_text_visibility.into_inner() = Visibility::Visible;
-                // let mut crack_position = Transform::from_xyz(1.45, 1.0, 0.5);
-                // crack_position.rotate_local_y(-std::f32::consts::FRAC_PI_2);
-                // commands.spawn((
-                //     // Node {
-                //     //     width: Val::Percent(100.0),
-                //     //     height: Val::Percent(100.0),
-                //     //     justify_content: JustifyContent::Center,
-                //     //     align_items: AlignItems::Center,
-                //     //     ..default()
-                //     // },
-                //     // BackgroundColor(Color::linear_rgba(0.0, 0.0, 0.0, 0.75)),
-                //     AnimatedImageController::play(asset_server.load("getbuckod.webp")),
-                //     bevy::render::view::RenderLayers::layer(1),
-                // ));
-
-                // *state = EggSpecialState::Easing;
-                // *ease = CameraEase::default();
-                // commands.set_state(MovementState::Enabled);
-                // commands.set_state(InteractionState::None);
-            } else {
-                *debug_text_visibility.into_inner() = Visibility::Hidden;
-            }
+            *debug_text_visibility.into_inner() = match key_input.pressed(settings.jump) {
+                true => Visibility::Visible,
+                false => Visibility::Hidden,
+            };
 
             if key_input.just_pressed(settings.interact) {
                 commands.spawn((
@@ -642,10 +575,6 @@ fn egg_special(
     }
 }
 
-// fn toggle_camera_2d(camera_2d: Single<&mut Camera, With<Camera2d>>) {
-//     camera_2d.into_inner().is_active ^= true;
-// }
-
 fn cursor_grab(q_windows: Single<&mut Window, With<PrimaryWindow>>) {
     let mut primary_window = q_windows.into_inner();
     primary_window.cursor_options.grab_mode = CursorGrabMode::Locked;
@@ -665,7 +594,3 @@ fn random_range(rand: u32, low: f32, high: f32) -> f32 {
     let r = low as f64 + (high as f64 - low as f64) * r;
     r as f32
 }
-
-// fn test(mut commands: Commands) {
-//     commands.entity(Entity::from_raw(0)).log_components();
-// }

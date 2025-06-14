@@ -22,6 +22,9 @@ enum MovementState {
     Disabled,
 }
 
+#[derive(Debug, Component)]
+struct Player;
+
 pub fn game_plugin(app: &mut App) {
     app.add_plugins(egg_plugin)
         .init_state::<GameState>()
@@ -43,9 +46,6 @@ pub fn game_plugin(app: &mut App) {
 fn game_setup(mut commands: Commands) {
     commands.set_state(GameState::Egg);
 }
-
-#[derive(Debug, Component)]
-struct Player;
 
 #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
 enum InteractionState {
@@ -72,8 +72,6 @@ struct InteractionPanel;
 struct InteractionText;
 
 const INTERACTION_RANGE: f32 = 1.0;
-// const INTERACTION_NONE: usize = 0;
-// const INTERACTION_CRACK: usize = 1;
 
 fn over_interactables(
     over: Trigger<Pointer<Over>>,
@@ -113,7 +111,6 @@ fn play_interactions(
     mut commands: Commands,
     player: Single<(&InteractTarget, &Transform), With<Player>>,
     q_interactables: Query<(&EntityInteraction, &Transform)>,
-    // mut ev_writer: EventWriter<EntityInteraction>,
 ) {
     // info!("Interacting");
     // Guards InteractTarget(None)
@@ -122,7 +119,6 @@ fn play_interactions(
     };
 
     // info!("Target Entity: {}", target_entity);
-    // let Some(target_entity) = interact_target else { return };
 
     let (entity_interaction, target_transform) = q_interactables.get_inner(*target_entity).unwrap();
     // info!("Entity Interaction: {:?}", entity_interaction);
@@ -135,8 +131,6 @@ fn play_interactions(
         return;
     }
 
-    // ev_writer.write(*entity_interaction);
-
     match entity_interaction {
         EntityInteraction::Text(text) => {
             commands.set_state(MovementState::Disabled);
@@ -148,6 +142,30 @@ fn play_interactions(
             commands.set_state(InteractionState::Special)
         }
     }
+}
+
+fn on_text_interaction(
+    mut commands: Commands,
+    key_input: Res<ButtonInput<KeyCode>>,
+    settings: Res<Persistent<Settings>>,
+    interaction_panel: Single<Entity, With<InteractionPanel>>,
+    interaction_text: Single<(&mut TextSimpleAnimator, &mut Text), With<InteractionText>>,
+) {
+    if !key_input.any_just_pressed([settings.jump, settings.interact, KeyCode::Escape]) {
+        return;
+    }
+
+    // Skip text animation
+    let (mut animator, mut text) = interaction_text.into_inner();
+    if animator.is_playing() {
+        text.0 = animator.text.clone();
+        animator.state = TextAnimationState::Stopped;
+        return;
+    }
+
+    commands.entity(interaction_panel.into_inner()).despawn();
+    commands.set_state(MovementState::Enabled);
+    commands.set_state(InteractionState::None);
 }
 
 fn interaction_panel(text: &'static str) -> impl Bundle {
@@ -176,73 +194,3 @@ fn interaction_panel(text: &'static str) -> impl Bundle {
         )],
     )
 }
-
-fn on_text_interaction(
-    mut commands: Commands,
-    key_input: Res<ButtonInput<KeyCode>>,
-    settings: Res<Persistent<Settings>>,
-    interaction_panel: Single<Entity, With<InteractionPanel>>,
-    interaction_text: Single<(&mut TextSimpleAnimator, &mut Text), With<InteractionText>>,
-) {
-    if !key_input.any_just_pressed([settings.jump, settings.interact, KeyCode::Escape]) {
-        return;
-    }
-
-    // Skip text animation
-    let (mut animator, mut text) = interaction_text.into_inner();
-    if animator.is_playing() {
-        text.0 = animator.text.clone();
-        animator.state = TextAnimationState::Stopped;
-        return;
-    }
-
-    commands.entity(interaction_panel.into_inner()).despawn();
-    commands.set_state(MovementState::Enabled);
-    commands.set_state(InteractionState::None);
-}
-
-// fn play_interactions(
-//     mut commands: Commands,
-//     mut interaction_events: EventReader<EntityInteraction>,
-// ) {
-//     let Some(interaction) = interaction_events.read().last() else {
-//         return;
-//     };
-
-//     commands.set_state(MovementState::Disabled);
-
-//     match interaction {
-//         EntityInteraction::Text(text) => {
-//             let interaction_panel = commands
-//                 .spawn((
-//                     Node {
-//                         width: Val::Percent(100.0),
-//                         height: Val::Percent(50.0),
-//                         justify_content: JustifyContent::Center,
-//                         align_items: AlignItems::Center,
-//                         ..default()
-//                     },
-//                     BackgroundColor(Color::linear_rgba(0.0, 0.0, 0.0, 0.75)),
-//                 ))
-//                 .id();
-
-//             let interaction_text = commands
-//                 .spawn((
-//                     Text::new(""),
-//                     TextFont {
-//                         font_size: 32.0,
-//                         ..default()
-//                     },
-//                     TextColor(WHITE.into()),
-//                 ))
-//                 .insert(TextSimpleAnimator::new(text, 8.0))
-//                 .id();
-
-//             commands
-//                 .entity(interaction_panel)
-//                 .add_child(interaction_text);
-//             info!("test");
-//         }
-//         EntityInteraction::Special => info!("Interaction Test Successful: bucko!"),
-//     }
-// }

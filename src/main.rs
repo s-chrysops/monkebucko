@@ -92,35 +92,8 @@ fn main() {
 
 fn setup(
     mut commands: Commands,
-    // mut images: ResMut<Assets<Image>>,
-    // asset_server: Res<AssetServer>,
     mut mesh_picking_settings: ResMut<MeshPickingSettings>,
 ) {
-    // let canvas_size = Extent3d {
-    //     width: WINDOW_WIDTH,
-    //     height: WINDOW_HEIGHT,
-    //     ..default()
-    // };
-
-    // let mut canvas = Image {
-    //     texture_descriptor: TextureDescriptor {
-    //         label:           None,
-    //         size:            canvas_size,
-    //         dimension:       TextureDimension::D2,
-    //         format:          TextureFormat::Bgra8UnormSrgb,
-    //         mip_level_count: 1,
-    //         sample_count:    1,
-    //         usage:           TextureUsages::TEXTURE_BINDING
-    //             | TextureUsages::COPY_DST
-    //             | TextureUsages::RENDER_ATTACHMENT,
-    //         view_formats:    &[],
-    //     },
-    //     ..default()
-    // };
-
-    // canvas.resize(canvas_size);
-    // let image_handle = images.add(canvas);
-
     commands.spawn((
         Camera2d,
         Camera {
@@ -134,21 +107,13 @@ fn setup(
         },
         // Msaa::Off,
         RENDER_LAYER_2D,
-        // Transform::default(),
     ));
 
     // commands.spawn((
     //     vleue_kinetoscope::AnimatedImageController::play(asset_server.load("test.gif")),
     //     bevy::render::view::RenderLayers::layer(1),
     // ));
-
-    // commands.spawn((
-    //     Canvas,
-    //     Sprite::from_image(image_handle),
-    //     RENDER_LAYER_2D,
-    //     Pickable::IGNORE,
-    // ));
-
+    
     mesh_picking_settings.require_markers = true;
 
     use bevy_persistent::Storage;
