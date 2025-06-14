@@ -7,11 +7,16 @@ authors = ["Scup st.chrysops@gmail.com"]
 
 [dependencies]
 bevy = {version = "0.16", features = ["serialize", "bevy_dev_tools", "pbr_transmission_textures"]}
+
 serde = "1.0.219"
 bevy-persistent = { version = "0.8.0", features = ["toml"] }
+
 rand_core = "0.9.3"
-
-[target.'cfg(all(target_family = "wasm", any(target_os = "unknown", target_os = "none")))'.dependencies]
 bevy_rand = { version = "0.11", features = ["wyrand", "wasm_js"] }
-bevy_text_animation = "0.4.1"
+[target.'cfg(all(target_family = "wasm", any(target_os = "unknown", target_os = "none")))'.dependencies]
 
+bevy_text_animation = "0.4.1"
+vleue_kinetoscope = "0.4.1"
+
+bevy_ecs_tiled = { git = "https://github.com/s-chrysops/bevy_ecs_tiled.git", features = ["avian"]}
+bevy_ecs_tilemap = "0.16"
