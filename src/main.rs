@@ -1,10 +1,15 @@
+use avian2d::PhysicsPlugins;
+// use avian2d::prelude::PhysicsDebugPlugin;
 use bevy::{
     // dev_tools::picking_debug::{DebugPickingMode, DebugPickingPlugin},
     prelude::*,
     render::{camera::CameraOutputMode, render_resource::*, view::RenderLayers},
     window::WindowResolution,
 };
-use bevy_ecs_tiled::{TiledMapPlugin, TiledMapPluginConfig};
+use bevy_ecs_tiled::{
+    TiledMapPlugin, TiledMapPluginConfig,
+    prelude::{TiledPhysicsAvianBackend, TiledPhysicsPlugin},
+};
 use bevy_persistent::prelude::*;
 use bevy_rand::{plugin::EntropyPlugin, prelude::WyRand};
 use bevy_text_animation::TextAnimatorPlugin;
@@ -54,9 +59,6 @@ impl Default for Settings {
     }
 }
 
-#[derive(Debug, Component)]
-struct Canvas;
-
 #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
 enum AppState {
     #[default]
@@ -78,23 +80,37 @@ fn main() {
                 ..default()
             })
             .set(ImagePlugin::default_nearest()),
-        TiledMapPlugin(TiledMapPluginConfig {
-            tiled_types_export_file: None,
-        }),
-        EntropyPlugin::<WyRand>::default(),
         MeshPickingPlugin,
         TextAnimatorPlugin,
+        TiledMapPlugin(TiledMapPluginConfig {
+            // Fixes crash on WASM
+            // I don't think I need this...
+            tiled_types_export_file: None,
+        }),
+        TiledPhysicsPlugin::<TiledPhysicsAvianBackend>::default(),
+        PhysicsPlugins::default().with_length_unit(32.0),
+        // PhysicsDebugPlugin::default(),
+        EntropyPlugin::<WyRand>::default(),
         AnimatedImagePlugin,
         // DebugPickingPlugin,
     ))
+    .add_plugins(bevy_inspector_egui::bevy_egui::EguiPlugin {
+        enable_multipass_for_primary_context: true,
+    })
+    .add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new())
     .add_plugins((menu_plugin, splash_plugin, game_plugin))
     .init_state::<AppState>()
-    .add_systems(Startup, setup)
+    .add_systems(Startup, (setup, initialize_settings))
     // .insert_resource(DebugPickingMode::Normal)
+    .insert_resource(avian2d::prelude::Gravity::ZERO)
+    .insert_resource(MeshPickingSettings {
+        require_markers:     true,
+        ray_cast_visibility: RayCastVisibility::VisibleInView,
+    })
     .run();
 }
 
-fn setup(mut commands: Commands, mut mesh_picking_settings: ResMut<MeshPickingSettings>) {
+fn setup(mut commands: Commands) {
     commands.spawn((
         Camera2d,
         Camera {
@@ -114,32 +130,22 @@ fn setup(mut commands: Commands, mut mesh_picking_settings: ResMut<MeshPickingSe
     //     vleue_kinetoscope::AnimatedImageController::play(asset_server.load("test.gif")),
     //     bevy::render::view::RenderLayers::layer(1),
     // ));
+}
 
-    mesh_picking_settings.require_markers = true;
-
-    use bevy_persistent::Storage;
-    let name = "settings";
-    let format = StorageFormat::Toml;
-    let storage = Storage::LocalStorage {
-        key: "settings".to_owned(),
-    };
-    let loaded = true;
-    let default = Settings::default();
-    let revertible = false;
-    let revert_to_default_on_deserialization_errors = false;
+fn initialize_settings(mut commands: Commands) {
+    let config_dir = dirs::config_dir()
+        .map(|native_config_dir| native_config_dir.join("monkebucko"))
+        .unwrap_or(std::path::Path::new("local").to_path_buf());
 
     commands.insert_resource(
-        Persistent::new(
-            name,
-            format,
-            storage,
-            loaded,
-            default,
-            revertible,
-            revert_to_default_on_deserialization_errors,
-        )
-        .expect("failed to initialize settings"),
-    );
+        Persistent::<Settings>::builder()
+            .name("settings")
+            .format(StorageFormat::Toml)
+            .path(config_dir.join("settings.toml"))
+            .default(Settings::default())
+            .build()
+            .expect("failed to initialize settings"),
+    )
 }
 
 // Generic system that takes a component as a parameter, and will despawn all entities with that component

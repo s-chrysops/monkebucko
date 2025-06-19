@@ -1,4 +1,7 @@
 #![allow(clippy::type_complexity)]
+use std::time::Duration;
+
+use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy_ecs_tiled::prelude::*;
 
@@ -8,15 +11,96 @@ use crate::RENDER_LAYER_WORLD;
 #[derive(Debug, Component)]
 struct OnTopDown;
 
+#[derive(Debug, Event, Deref, PartialEq)]
+struct SpriteAnimationFinished(Entity);
+
+#[derive(Debug, Component, Reflect)]
+#[reflect(Component)]
+struct SpriteAnimation {
+    first_index: usize,
+    last_index:  usize,
+    frame_timer: Timer,
+    looping:     bool,
+}
+
+impl SpriteAnimation {
+    fn new(first: usize, last: usize, fps: u8) -> Self {
+        SpriteAnimation {
+            first_index: first,
+            last_index:  last,
+            frame_timer: Self::timer_from_fps(fps),
+            looping:     false,
+        }
+    }
+
+    fn _looping(mut self) -> Self {
+        self.looping = true;
+        self
+    }
+
+    // a little hack to change sprite without the Sprite component
+    fn set_frame(index: usize) -> Self {
+        SpriteAnimation {
+            first_index: index,
+            last_index:  index,
+            frame_timer: Self::timer_from_fps(240),
+            looping:     true,
+        }
+    }
+
+    fn timer_from_fps(fps: u8) -> Timer {
+        Timer::new(Duration::from_secs_f32(1.0 / (fps as f32)), TimerMode::Once)
+    }
+}
+
+fn play_animations(
+    mut commands: Commands,
+    mut e_writer: EventWriter<SpriteAnimationFinished>,
+    mut query: Query<(Entity, &mut SpriteAnimation, &mut Sprite)>,
+    time: Res<Time>,
+) {
+    for (entity, mut animation, mut sprite) in query.iter_mut() {
+        animation.frame_timer.tick(time.delta());
+        if animation.frame_timer.just_finished() {
+            let atlas = sprite
+                .texture_atlas
+                .as_mut()
+                .expect("Sprite Animation with no Texture Atlas");
+
+            if animation.first_index == animation.last_index {
+                atlas.index = animation.first_index;
+                
+                e_writer.write(SpriteAnimationFinished(entity));
+                commands.trigger_targets(SpriteAnimationFinished(entity), entity);
+            } else if atlas.index != animation.last_index {
+                atlas.index += 1;
+                animation.frame_timer.reset();
+            } else if animation.looping {
+                atlas.index = animation.first_index;
+                animation.frame_timer.reset();
+            } else {
+                e_writer.write(SpriteAnimationFinished(entity));
+                commands.trigger_targets(SpriteAnimationFinished(entity), entity);
+            }
+        }
+    }
+}
+
 pub fn topdown_plugin(app: &mut App) {
-    app.add_systems(OnEnter(GameState::TopDown), topdown_setup)
+    app.add_systems(OnEnter(GameState::TopDown), (spawn_player, topdown_setup))
         .add_systems(
             Update,
-            move_player
+            set_player_hop
                 .run_if(in_state(GameState::TopDown))
                 .run_if(in_state(MovementState::Enabled)),
         )
-        .add_systems(Update, camera_follow.run_if(in_state(GameState::TopDown)));
+        .add_systems(
+            Update,
+            (camera_follow, play_animations).run_if(in_state(GameState::TopDown)),
+        )
+        .register_type::<Hop>()
+        .register_type::<SpriteAnimation>()
+        .add_event::<SpriteAnimationFinished>();
 }
 
 fn topdown_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -28,53 +112,218 @@ fn topdown_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             clear_color: ClearColorConfig::Custom(Color::BLACK),
             ..default()
         },
+        Transform::from_scale(Vec3::splat(0.5)),
         RENDER_LAYER_WORLD,
     ));
 
     commands.spawn((
         OnTopDown,
-        Player,
-        InteractTarget(None),
-        Transform::default(),
+        Transform::from_xyz(500.0, 500.0, 0.0),
         Visibility::default(),
         Sprite::from_image(asset_server.load("bucko.png")),
+        RigidBody::Static,
+        Collider::circle(32.0),
         RENDER_LAYER_WORLD,
     ));
 
     let buckoville: Handle<TiledMap> = asset_server.load("maps/buckoville.tmx");
 
-    commands.spawn(TiledMapHandle(buckoville));
+    commands.spawn(TiledMapHandle(buckoville)).observe(
+        |trigger: Trigger<TiledColliderCreated>, mut commands: Commands| {
+            commands.entity(trigger.entity).insert(RigidBody::Static);
+        },
+    );
 }
 
-const PLAYER_STEP: f32 = 6.0;
+fn spawn_player(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
+) {
+    let player_sprites: Handle<Image> = asset_server.load("sprites/bucko_bounce.png");
+    let layout = TextureAtlasLayout::from_grid(UVec2::splat(32), 8, 2, None, None);
+    let texture_atlas_layout = texture_atlas_layouts.add(layout);
 
-fn move_player(
+    commands
+        .spawn((
+            OnTopDown,
+            Player,
+            InteractTarget(None),
+            //
+            Transform::default(),
+            Visibility::default(),
+            //
+            Sprite::from_atlas_image(
+                player_sprites,
+                TextureAtlas {
+                    layout: texture_atlas_layout,
+                    index:  0,
+                },
+            ),
+            Hop {
+                state:          HopState::Idle,
+                input_vector:   Vec2::ZERO,
+                last_direction: Dir2::EAST,
+            },
+            SpriteAnimation::set_frame(0),
+            //
+            RigidBody::Dynamic,
+            Collider::circle(14.0),
+            LockedAxes::ROTATION_LOCKED,
+            LinearVelocity::ZERO,
+            LinearDamping(3.0),
+            //
+            RENDER_LAYER_WORLD,
+        ))
+        .observe(update_player_hop)
+        .observe(cycle_hop_animations);
+}
+
+// #[derive(Debug)]
+// struct DelayTimer(Timer);
+
+// impl Default for DelayTimer {
+//     fn default() -> Self {
+//         const MOVEMENT_DELAY: f32 = 0.0001;
+//         Self(Timer::from_seconds(MOVEMENT_DELAY, TimerMode::Once))
+//     }
+// }
+
+#[derive(Debug, Event)]
+struct HopUpdate;
+
+#[derive(Debug, Default, Clone, Copy, Reflect)]
+enum HopState {
+    Ready,
+    Charging,
+    Airborne,
+    Landing,
+    #[default]
+    Idle,
+}
+
+#[derive(Debug, Component, Clone, Copy, Reflect)]
+#[reflect(Component)]
+struct Hop {
+    state:          HopState,
+    input_vector:   Vec2,
+    last_direction: Dir2,
+}
+
+impl Hop {
+    fn _update(&mut self, input: Vec2) {
+        self.input_vector = input.normalize_or_zero();
+        if let Ok(new_direction) = Dir2::new(input) {
+            self.last_direction = new_direction;
+            self.state = HopState::Ready;
+        }
+    }
+
+    fn cycle_state(&mut self) {
+        self.state = match self.state {
+            HopState::Ready => HopState::Charging,
+            HopState::Charging => HopState::Airborne,
+            HopState::Airborne => HopState::Landing,
+            HopState::Landing => HopState::Idle,
+            HopState::Idle => HopState::Idle,
+        }
+    }
+}
+
+fn set_player_hop(
+    mut commands: Commands,
     settings: Res<Persistent<Settings>>,
     key_input: Res<ButtonInput<KeyCode>>,
-    player: Single<&mut Transform, With<Player>>,
+    player: Single<(Entity, &mut Hop), With<Player>>,
 ) {
-    let mut player_transform = player.into_inner();
-    let mut next_position = player_transform.translation;
-    let up = PLAYER_STEP * Vec3::Y;
-    let right = PLAYER_STEP * Vec3::X;
-
+    let mut input_vector = Vec2::ZERO;
     if key_input.pressed(settings.up) {
-        next_position += up;
+        input_vector += Vec2::Y;
     }
     if key_input.pressed(settings.down) {
-        next_position -= up;
-    }
-    if key_input.pressed(settings.left) {
-        next_position -= right;
+        input_vector -= Vec2::Y;
     }
     if key_input.pressed(settings.right) {
-        next_position += right;
+        input_vector += Vec2::X;
     }
-    if key_input.pressed(settings.jump) {
-        info!("JUMP!");
+    if key_input.pressed(settings.left) {
+        input_vector -= Vec2::X;
     }
 
-    player_transform.translation = next_position;
+    let (entity, mut hop) = player.into_inner();
+    hop.input_vector = input_vector.normalize_or_zero();
+    if let Ok(new_direction) = Dir2::new(input_vector) {
+        hop.last_direction = new_direction;
+        hop.state = HopState::Ready;
+        commands.trigger_targets(HopUpdate, entity);
+    }
+}
+
+fn cycle_hop_animations(
+    _trigger: Trigger<SpriteAnimationFinished>,
+    mut commands: Commands,
+    player: Single<(Entity, &mut Hop)>,
+) {
+    let (entity, mut hop) = player.into_inner();
+    hop.cycle_state();
+    commands.trigger_targets(HopUpdate, entity);
+}
+
+fn update_player_hop(
+    _trigger: Trigger<HopUpdate>,
+    mut commands: Commands,
+    player: Single<(Entity, &mut Hop, &mut SpriteAnimation, &mut LinearVelocity)>,
+) {
+    const PLAYER_SPEED: f32 = 128.0;
+
+    let (_entity, hop, mut animation, mut velocity) = player.into_inner();
+
+    // if e_reader
+    //     .read()
+    //     .any(|ev| *ev == SpriteAnimationFinished(entity))
+    // {
+    //     hop.cycle_state();
+    // }
+
+    const SPRITES_PER_ROW: usize = 8;
+    // Map direction to spritesheet y-offset
+    // x.signum() will suffice whilst only right/left sprites are present
+    let index_offset = SPRITES_PER_ROW
+        * match hop.last_direction.x.signum() {
+            // Facing right
+            1.0 => 0,
+            // Facing left
+            -1.0 => 1,
+            // Up or down, default to right
+            _ => 0,
+        };
+
+    match hop.state {
+        HopState::Ready => {
+            commands.set_state(MovementState::Disabled);
+            *animation = SpriteAnimation::set_frame(index_offset);
+            // hop.cycle_state();
+            // commands.trigger_targets(HopUpdate, entity);
+        }
+        HopState::Charging => {
+            *animation = SpriteAnimation::new(1 + index_offset, 2 + index_offset, 12);
+        }
+        HopState::Airborne => {
+            *velocity = LinearVelocity(hop.input_vector * PLAYER_SPEED);
+            *animation = SpriteAnimation::new(3 + index_offset, 5 + index_offset, 12);
+        }
+        HopState::Landing => {
+            *animation = SpriteAnimation::new(6 + index_offset, 7 + index_offset, 12);
+        }
+        HopState::Idle => {
+            commands.set_state(MovementState::Enabled);
+            *animation = SpriteAnimation::set_frame(index_offset);
+            // if hop.input_vector != Vec2::ZERO {
+            //     hop.cycle_state();
+            //     commands.trigger_targets(HopUpdate, entity);
+            // }
+        }
+    }
 }
 
 fn camera_follow(
