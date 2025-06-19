@@ -59,31 +59,32 @@ fn play_animations(
     mut query: Query<(Entity, &mut SpriteAnimation, &mut Sprite)>,
     time: Res<Time>,
 ) {
-    for (entity, mut animation, mut sprite) in query.iter_mut() {
-        animation.frame_timer.tick(time.delta());
-        if animation.frame_timer.just_finished() {
-            let atlas = sprite
-                .texture_atlas
-                .as_mut()
-                .expect("Sprite Animation with no Texture Atlas");
+    query
+        .iter_mut()
+        .for_each(|(entity, mut animation, mut sprite)| {
+            animation.frame_timer.tick(time.delta());
+            if animation.frame_timer.just_finished() {
+                let atlas = sprite
+                    .texture_atlas
+                    .as_mut()
+                    .expect("Animated Sprite with no Texture Atlas");
 
-            if animation.first_index == animation.last_index {
-                atlas.index = animation.first_index;
-                
-                e_writer.write(SpriteAnimationFinished(entity));
-                commands.trigger_targets(SpriteAnimationFinished(entity), entity);
-            } else if atlas.index != animation.last_index {
-                atlas.index += 1;
-                animation.frame_timer.reset();
-            } else if animation.looping {
-                atlas.index = animation.first_index;
-                animation.frame_timer.reset();
-            } else {
-                e_writer.write(SpriteAnimationFinished(entity));
-                commands.trigger_targets(SpriteAnimationFinished(entity), entity);
+                if animation.first_index == animation.last_index {
+                    atlas.index = animation.first_index;
+                    e_writer.write(SpriteAnimationFinished(entity));
+                    commands.trigger_targets(SpriteAnimationFinished(entity), entity);
+                } else if atlas.index < animation.last_index {
+                    atlas.index += 1;
+                    animation.frame_timer.reset();
+                } else if animation.looping {
+                    atlas.index = animation.first_index;
+                    animation.frame_timer.reset();
+                } else {
+                    e_writer.write(SpriteAnimationFinished(entity));
+                    commands.trigger_targets(SpriteAnimationFinished(entity), entity);
+                }
             }
-        }
-    }
+        });
 }
 
 pub fn topdown_plugin(app: &mut App) {
@@ -96,10 +97,12 @@ pub fn topdown_plugin(app: &mut App) {
         )
         .add_systems(
             Update,
-            (camera_follow, play_animations).run_if(in_state(GameState::TopDown)),
+            (camera_follow, play_animations, update_player_z).run_if(in_state(GameState::TopDown)),
         )
+        .add_observer(set_tiled_object_z)
         .register_type::<Hop>()
         .register_type::<SpriteAnimation>()
+        .init_resource::<MapRect>()
         .add_event::<SpriteAnimationFinished>();
 }
 
@@ -133,6 +136,51 @@ fn topdown_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             commands.entity(trigger.entity).insert(RigidBody::Static);
         },
     );
+}
+
+#[derive(Debug, Default, Deref, DerefMut, Resource)]
+struct MapRect(Rect);
+
+const Z_BETWEEN_LAYERS: f32 = 100.0;
+
+fn set_tiled_object_z(
+    trigger: Trigger<TiledMapCreated>,
+    q_tiled_maps: Query<&mut TiledMapStorage, With<TiledMapMarker>>,
+    mut q_tiled_objects: Query<&mut Transform, With<TiledMapObject>>,
+    a_tiled_maps: Res<Assets<TiledMap>>,
+    mut map_rect_cached: ResMut<MapRect>,
+) {
+    let Some(tiled_map) = trigger.event().get_map_asset(&a_tiled_maps) else {
+        return;
+    };
+    let tilemap_size = tiled_map.tilemap_size;
+    info!("Map Size = x: {}, y: {}", tilemap_size.x, tilemap_size.y);
+    let map_rect = tiled_map.rect;
+    map_rect_cached.0 = map_rect;
+
+    let Ok(map_storage) = q_tiled_maps.get(trigger.entity) else {
+        return;
+    };
+
+    // Objects higher up on the map will be given a greater negative z-offset
+    map_storage.objects.iter().for_each(|(_tiled_id, entity)| {
+        if let Ok(mut transform) = q_tiled_objects.get_mut(*entity) {
+            let offset_y = transform.translation.y - map_rect.min.y;
+            transform.translation.z -= offset_y / map_rect.height() * Z_BETWEEN_LAYERS;
+        }
+    });
+}
+
+fn update_player_z(
+    player: Single<&mut Transform, (With<Player>, Changed<Transform>)>,
+    map_rect: Res<MapRect>,
+) {
+    if map_rect.0 == Rect::default() {
+        return;
+    }
+    let mut transform = player.into_inner();
+    let offset_y = transform.translation.y - map_rect.min.y;
+    transform.translation.z = -offset_y / map_rect.height() * Z_BETWEEN_LAYERS - Z_BETWEEN_LAYERS;
 }
 
 fn spawn_player(
