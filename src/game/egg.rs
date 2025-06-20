@@ -3,7 +3,7 @@ use std::f32::consts::*;
 use bevy::{
     color::palettes::css::*,
     core_pipeline::{bloom::Bloom, tonemapping::Tonemapping},
-    ecs::system::SystemId,
+    // ecs::system::SystemId,
     input::mouse::AccumulatedMouseMotion,
     prelude::*,
     window::{CursorGrabMode, PrimaryWindow},
@@ -41,11 +41,11 @@ impl Default for CameraSensitivity {
     }
 }
 
-#[derive(Resource)]
-struct SpawnStarSystem(SystemId);
+// #[derive(Debug, Deref, Resource)]
+// struct SpawnStarSystem(SystemId);
 
 pub fn egg_plugin(app: &mut App) {
-    let spawn_star_system = app.register_system(spawn_star);
+    // let spawn_star_system = app.register_system(spawn_star);
 
     app.add_systems(
         OnEnter(GameState::Egg),
@@ -70,7 +70,7 @@ pub fn egg_plugin(app: &mut App) {
         Update,
         egg_special.run_if(in_state(InteractionState::Special)),
     )
-    .insert_resource(SpawnStarSystem(spawn_star_system));
+    .init_resource::<StarResources>();
 }
 
 // #[derive(Debug, Component, Deref, DerefMut)]
@@ -212,14 +212,14 @@ fn spawn_world(
         (window_sill, (0.3, 0.8, 1.5)),
     ];
 
-    room_elements.into_iter().for_each(|(mesh, (x, y, z))| {
-        commands.spawn((
+    commands.spawn_batch(room_elements.map(|(mesh, (x, y, z))| {
+        (
             OnEggScene,
             Mesh3d(mesh),
             MeshMaterial3d(material.clone()),
             Transform::from_xyz(x, y, z),
-        ));
-    });
+        )
+    }));
 
     // Window Glass
     commands
@@ -271,31 +271,27 @@ fn spawn_world(
     ));
 
     // Crack
-    {
-        let crack_material = materials.add(StandardMaterial {
-            base_color_texture: Some(asset_server.load("bucko.png")),
-            perceptual_roughness: 1.0,
-            alpha_mode: AlphaMode::Mask(0.5),
-            cull_mode: None,
-            emissive: LinearRgba::rgb(150.0, 150.0, 150.0),
-            ..default()
-        });
-
-        let mut crack_transform = Transform::from_xyz(1.49, 1.0, 0.5);
-        crack_transform.rotate_local_y(-std::f32::consts::FRAC_PI_2);
-
-        commands
-            .spawn((
-                OnEggScene,
-                crack_transform,
-                Mesh3d(meshes.add(Rectangle::new(1.0, 1.0))),
-                MeshMaterial3d(crack_material),
-                PICKABLE,
-                EntityInteraction::Special,
-            ))
-            .observe(over_interactables)
-            .observe(out_interactables);
-    }
+    let crack_material = materials.add(StandardMaterial {
+        base_color_texture: Some(asset_server.load("bucko.png")),
+        perceptual_roughness: 1.0,
+        alpha_mode: AlphaMode::Mask(0.5),
+        cull_mode: None,
+        emissive: LinearRgba::rgb(150.0, 150.0, 150.0),
+        ..default()
+    });
+    let mut crack_transform = Transform::from_xyz(1.49, 1.0, 0.5);
+    crack_transform.rotate_local_y(-std::f32::consts::FRAC_PI_2);
+    commands
+        .spawn((
+            OnEggScene,
+            crack_transform,
+            Mesh3d(meshes.add(Rectangle::new(1.0, 1.0))),
+            MeshMaterial3d(crack_material),
+            PICKABLE,
+            EntityInteraction::Special,
+        ))
+        .observe(over_interactables)
+        .observe(out_interactables);
 
     // commands
     //     .spawn((
@@ -327,77 +323,117 @@ fn spawn_world(
     ));
 }
 
+const MAX_STAR_AMOUNT: usize = 300;
+const BACK_STAR_AMOUNT: usize = 200;
+const MIN_STAR_HEIGHT: f32 = -15.0;
+const MAX_STAR_HEIGHT: f32 = 30.0;
+const LUMINANCE_LEVELS: usize = 4;
+const MIN_STAR_LUMINANCE: f32 = 4.0;
+const MAX_STAR_LUMINANCE: f32 = 400.0;
+const MIN_STAR_SPEED: f32 = 0.01;
+const MAX_STAR_SPEED: f32 = 0.5;
+
 // Star with parallax speed
 #[derive(Debug, Component)]
 struct Star(f32);
 
-const STAR_AMOUNT: usize = 200;
-const BACK_STAR_AMOUNT: usize = 50;
-const MIN_STAR_HEIGHT: f32 = -15.0;
-const MAX_STAR_HEIGHT: f32 = 30.0;
-const MIN_STAR_LUMINANCE: f32 = 2.0;
-const MAX_STAR_LUMINANCE: f32 = 200.0;
-const MIN_STAR_SPEED: f32 = 0.01;
-const MAX_STAR_SPEED: f32 = 0.5;
-
-fn spawn_stars(mut commands: Commands, spawn_star: Res<SpawnStarSystem>) {
-    info!("Spawning stars");
-    (0..STAR_AMOUNT).for_each(|_| {
-        commands.run_system(spawn_star.0);
-    });
+// Star mesh and materials with 4 levels of luminance
+#[derive(Debug, Resource)]
+struct StarResources {
+    mesh:      Handle<Mesh>,
+    materials: [Handle<StandardMaterial>; LUMINANCE_LEVELS],
 }
 
-fn spawn_star(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut rng: GlobalEntropy<WyRand>,
-    mut count: Local<usize>,
-) {
+impl FromWorld for StarResources {
+    fn from_world(world: &mut World) -> Self {
+        let mut meshes = world.resource_mut::<Assets<Mesh>>();
+        let mesh = meshes.add(Circle::new(0.01));
+
+        let mut materials = world.resource_mut::<Assets<StandardMaterial>>();
+        let lum_increment = (MAX_STAR_LUMINANCE - MIN_STAR_LUMINANCE) / LUMINANCE_LEVELS as f32;
+        let materials = (0..LUMINANCE_LEVELS)
+            .map(|level| {
+                let lum = lum_increment * level as f32;
+                materials.add(StandardMaterial {
+                    emissive: LinearRgba::rgb(lum, lum, lum),
+                    ..default()
+                })
+            })
+            .collect::<Vec<Handle<StandardMaterial>>>()
+            .try_into()
+            .unwrap();
+
+        StarResources { mesh, materials }
+    }
+}
+
+fn generate_star(mut rng: Entropy<WyRand>, count: usize) -> (f32, usize, Transform) {
+    // Star's angle on the half-cylinder skybox
     let angle = random_range(rng.next_u32(), 0.0, std::f32::consts::PI);
-    let mut height = MAX_STAR_HEIGHT;
-    let lum = random_range(rng.next_u32(), MIN_STAR_LUMINANCE, MAX_STAR_LUMINANCE);
-    let speed = if *count > BACK_STAR_AMOUNT {
-        random_range(rng.next_u32(), MIN_STAR_SPEED.sqrt(), MAX_STAR_SPEED.sqrt()).powi(2)
-    } else {
-        0.0
+
+    // Static stars
+    let speed = match count < BACK_STAR_AMOUNT {
+        true => 0.0,
+        false => random_range(rng.next_u32(), MIN_STAR_SPEED.sqrt(), MAX_STAR_SPEED.sqrt()).powi(2),
     };
 
     // Initial stars
-    if *count != STAR_AMOUNT {
-        height = random_range(rng.next_u32(), MIN_STAR_HEIGHT, MAX_STAR_HEIGHT);
-        *count += 1;
-    }
+    let height = match count < MAX_STAR_AMOUNT {
+        true => random_range(rng.next_u32(), MIN_STAR_HEIGHT, MAX_STAR_HEIGHT),
+        false => MAX_STAR_HEIGHT,
+    };
+
+    let lum = rng.next_u32() as usize % 4;
 
     let mut transform = Transform::from_xyz(10.0 * ops::cos(angle), height, 10.0 * ops::sin(angle));
     transform.rotate_local_y(3.0 * std::f32::consts::FRAC_PI_2 - angle);
 
-    let material_emissive = materials.add(StandardMaterial {
-        emissive: LinearRgba::rgb(lum, lum, lum),
-        ..default()
-    });
+    (speed, lum, transform)
+}
 
-    commands.spawn((
-        OnEggScene,
-        Star(speed),
-        Mesh3d(meshes.add(Circle::new(0.01))),
-        MeshMaterial3d(material_emissive),
-        transform,
-    ));
+fn spawn_stars(
+    mut commands: Commands,
+    mut rng: GlobalEntropy<WyRand>,
+    resources: Res<StarResources>,
+) {
+    info!("Spawning stars");
+    let initial_stars: Vec<_> = (0..MAX_STAR_AMOUNT)
+        .map(|i| generate_star(rng.fork_rng(), i))
+        .map(|(speed, lum, transform)| {
+            (
+                OnEggScene,
+                Star(speed),
+                Mesh3d(resources.mesh.clone_weak()),
+                MeshMaterial3d(resources.materials[lum].clone_weak()),
+                transform,
+            )
+        })
+        .collect();
+    commands.spawn_batch(initial_stars);
 }
 
 fn move_stars(
     mut commands: Commands,
     stars: Query<(Entity, &Star, &mut Transform)>,
-    spawn_star: Res<SpawnStarSystem>,
+    mut rng: GlobalEntropy<WyRand>,
+    resources: Res<StarResources>,
 ) {
-    for (entity, Star(speed), mut transform) in stars {
-        transform.translation.y -= speed;
-        if transform.translation.y <= MIN_STAR_HEIGHT {
-            commands.entity(entity).despawn();
-            commands.run_system(spawn_star.0);
-        }
-    }
+    stars
+        .into_iter()
+        .for_each(|(entity, Star(speed), mut transform)| {
+            transform.translation.y -= speed;
+            if transform.translation.y <= MIN_STAR_HEIGHT {
+                commands.entity(entity).despawn();
+                let (speed, lum, transform) = generate_star(rng.fork_rng(), MAX_STAR_AMOUNT);
+                commands.spawn((
+                    OnEggScene,
+                    Star(speed),
+                    Mesh3d(resources.mesh.clone_weak()),
+                    MeshMaterial3d(resources.materials[lum].clone_weak()),
+                    transform,
+                ));
+            }
+        });
 }
 
 #[derive(Debug, Component)]
