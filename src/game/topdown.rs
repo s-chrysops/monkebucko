@@ -107,6 +107,9 @@ pub fn topdown_plugin(app: &mut App) {
 }
 
 fn topdown_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+    use crate::{WINDOW_WIDTH, WINDOW_HEIGHT};
+    use bevy::render::camera::ScalingMode;
+    
     commands.spawn((
         WorldCamera,
         Camera2d,
@@ -116,6 +119,17 @@ fn topdown_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             ..default()
         },
         Transform::from_scale(Vec3::splat(0.5)),
+        crate::auto_scaling::AspectRatio(16.0 / 9.0),
+        Projection::from({
+            OrthographicProjection {
+                near: -1000.0,
+                scaling_mode: ScalingMode::Fixed {
+                    width:  WINDOW_WIDTH as f32,
+                    height: WINDOW_HEIGHT as f32,
+                },
+                ..OrthographicProjection::default_3d()
+            }
+        }),
         RENDER_LAYER_WORLD,
     ));
 

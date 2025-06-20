@@ -13,7 +13,7 @@ use bevy_rand::prelude::*;
 use rand_core::RngCore;
 // use vleue_kinetoscope::AnimatedImageController;
 
-use crate::{RENDER_LAYER_WORLD, Settings, despawn_screen};
+use crate::{RENDER_LAYER_WORLD, Settings, auto_scaling::AspectRatio, despawn_screen};
 
 use super::*;
 
@@ -101,6 +101,7 @@ fn spawn_player(mut commands: Commands) {
                 fov: 70.0_f32.to_radians(),
                 ..default()
             }),
+            AspectRatio(16.0 / 9.0),
             RENDER_LAYER_WORLD,
         )],
     ));

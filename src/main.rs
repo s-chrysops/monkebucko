@@ -14,11 +14,15 @@ use bevy_persistent::prelude::*;
 use bevy_rand::{plugin::EntropyPlugin, prelude::WyRand};
 use bevy_text_animation::TextAnimatorPlugin;
 use serde::{Deserialize, Serialize};
-use vleue_kinetoscope::AnimatedImagePlugin;
+// use vleue_kinetoscope::AnimatedImagePlugin;
+
+mod auto_scaling;
 
 use game::game_plugin;
 use menu::menu_plugin;
 use splash::splash_plugin;
+
+use crate::auto_scaling::ScalePlugin;
 
 mod game;
 mod menu;
@@ -28,7 +32,10 @@ const WINDOW_WIDTH: u32 = 1280;
 const WINDOW_HEIGHT: u32 = 720;
 
 const RENDER_LAYER_WORLD: RenderLayers = RenderLayers::layer(0);
-const RENDER_LAYER_2D: RenderLayers = RenderLayers::layer(1);
+const RENDER_LAYER_OVERLAY: RenderLayers = RenderLayers::layer(1);
+
+#[derive(Debug, Component)]
+struct OverlayCamera;
 
 #[derive(Debug, Resource, Serialize, Deserialize)]
 struct Settings {
@@ -82,6 +89,7 @@ fn main() {
             .set(ImagePlugin::default_nearest()),
         MeshPickingPlugin,
         TextAnimatorPlugin,
+        ScalePlugin,
         TiledMapPlugin(TiledMapPluginConfig {
             // Fixes crash on WASM
             // I don't think I need this...
@@ -89,15 +97,14 @@ fn main() {
         }),
         TiledPhysicsPlugin::<TiledPhysicsAvianBackend>::default(),
         PhysicsPlugins::default().with_length_unit(32.0),
-        // PhysicsDebugPlugin::default(),
         EntropyPlugin::<WyRand>::default(),
-        AnimatedImagePlugin,
+        // PhysicsDebugPlugin::default(),
         // DebugPickingPlugin,
     ))
-    .add_plugins(bevy_inspector_egui::bevy_egui::EguiPlugin {
-        enable_multipass_for_primary_context: true,
-    })
-    .add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new())
+    // .add_plugins(bevy_inspector_egui::bevy_egui::EguiPlugin {
+    //     enable_multipass_for_primary_context: true,
+    // })
+    // .add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new())
     .add_plugins((menu_plugin, splash_plugin, game_plugin))
     .init_state::<AppState>()
     .add_systems(Startup, (setup, initialize_settings))
@@ -122,8 +129,9 @@ fn setup(mut commands: Commands) {
             },
             ..default()
         },
+        auto_scaling::AspectRatio(16.0 / 9.0),
         // Msaa::Off,
-        RENDER_LAYER_2D,
+        RENDER_LAYER_OVERLAY,
     ));
 
     // commands.spawn((
