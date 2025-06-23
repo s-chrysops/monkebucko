@@ -3418,7 +3418,7 @@ dependencies = [
 
 [[package]]
 name = "monkebucko"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "avian2d",
  "bevy",
