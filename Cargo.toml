@@ -13,10 +13,9 @@ dirs = "5.0.1"
 serde = "1.0.219"
 
 bevy_text_animation = "0.4.1"
-vleue_kinetoscope = "0.4.1"
 
-avian2d = "0.3"
-bevy_ecs_tiled = { git = "https://github.com/s-chrysops/bevy_ecs_tiled.git", features = ["avian"]}
+avian2d = "0.3.0"
+bevy_ecs_tiled = { git = "https://github.com/s-chrysops/bevy_ecs_tiled.git", features = ["avian", "user_properties"] }
 bevy_ecs_tilemap = "0.16"
 
 bevy-inspector-egui = "0.31"
@@ -24,3 +23,9 @@ bevy-inspector-egui = "0.31"
 [target.'cfg(all(target_family = "wasm", any(target_os = "unknown", target_os = "none")))'.dependencies]
 rand_core = "0.9.3"
 bevy_rand = { version = "0.11", features = ["wyrand", "wasm_js"] }
+
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1

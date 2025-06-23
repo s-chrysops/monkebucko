@@ -388,9 +388,9 @@ dependencies = [
 
 [[package]]
 name = "avian2d"
-version = "0.3.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7133547d9cc068d527d91fdcb8c8017c89b26ce05dbd30daef9f1ca64824495d"
+checksum = "715a2bd9f406078b91e7cc371533c2a61795dd8ad02b93c91b4c9eb2f606336b"
 dependencies = [
  "arrayvec",
  "avian_derive",
@@ -797,6 +797,8 @@ dependencies = [
  "bevy_ecs_tilemap",
  "futures-lite",
  "log",
+ "serde",
+ "serde_json",
  "thiserror 2.0.12",
  "tiled",
 ]
@@ -3429,7 +3431,6 @@ dependencies = [
  "dirs",
  "rand_core 0.9.3",
  "serde",
- "vleue_kinetoscope",
 ]
 
 [[package]]
@@ -5584,27 +5585,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "vleue_kinetoscope"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7799dd8158c2eed3cfd66019cf2b933d900c04c4e4d2ac35a2833df713bbf44"
-dependencies = [
- "bevy_app",
- "bevy_asset",
- "bevy_ecs",
- "bevy_image",
- "bevy_reflect",
- "bevy_sprite",
- "bevy_tasks",
- "bevy_time",
- "crossbeam-channel",
- "image",
- "log",
- "smallvec",
- "thiserror 1.0.69",
-]
 
 [[package]]
 name = "walkdir"
