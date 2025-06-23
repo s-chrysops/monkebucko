@@ -1,53 +1,53 @@
 {
     "maps": [
         {
-            "fileName": "maps/forest_west.tmx",
-            "height": 1152,
-            "width": 1536,
-            "x": 3072,
-            "y": 1152
-        },
-        {
-            "fileName": "maps/buckoville.tmx",
-            "height": 1152,
-            "width": 1536,
-            "x": 4608,
-            "y": 1152
-        },
-        {
             "fileName": "maps/mountains.tmx",
-            "height": 1152,
-            "width": 1536,
-            "x": 3072,
-            "y": 0
+            "height": 1408,
+            "width": 1792,
+            "x": 4352,
+            "y": -1408
         },
         {
             "fileName": "maps/backyard.tmx",
-            "height": 1152,
+            "height": 1408,
             "width": 1536,
-            "x": 4608,
-            "y": 0
+            "x": 6144,
+            "y": -1408
         },
         {
             "fileName": "maps/fields.tmx",
+            "height": 1408,
+            "width": 1792,
+            "x": 7680,
+            "y": -1408
+        },
+        {
+            "fileName": "maps/beach.tmx",
+            "height": 1408,
+            "width": 5120,
+            "x": 4352,
+            "y": 1152
+        },
+        {
+            "fileName": "maps/farm.tmx",
+            "height": 1152,
+            "width": 1792,
+            "x": 7680,
+            "y": 0
+        },
+        {
+            "fileName": "maps/forest.tmx",
+            "height": 1152,
+            "width": 1792,
+            "x": 4352,
+            "y": 0
+        },
+        {
+            "fileName": "maps/buckotown.tmx",
             "height": 1152,
             "width": 1536,
             "x": 6144,
             "y": 0
-        },
-        {
-            "fileName": "tilesets/farm.tmx",
-            "height": 1152,
-            "width": 1536,
-            "x": 6144,
-            "y": 1152
-        },
-        {
-            "fileName": "maps/beach.tmx",
-            "height": 1152,
-            "width": 4608,
-            "x": 3072,
-            "y": 2304
         }
     ],
     "onlyShowAdjacentMaps": false,

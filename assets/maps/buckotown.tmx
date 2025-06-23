@@ -1,108 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<map version="1.10" tiledversion="1.11.2" orientation="orthogonal" renderorder="right-down" width="48" height="36" tilewidth="32" tileheight="32" infinite="0" nextlayerid="13" nextobjectid="12">
- <tileset firstgid="1" name="Basic Terrain" tilewidth="32" tileheight="32" tilecount="160" columns="10">
-  <image source="../tilesets/basic_terrain/terrain_tiles_v2.png" width="320" height="512"/>
-  <tile id="125">
-   <objectgroup draworder="index" id="2">
-    <object id="10" x="0" y="4" width="32" height="28"/>
-   </objectgroup>
-  </tile>
-  <wangsets>
-   <wangset name="Basic" type="corner" tile="-1">
-    <wangcolor name="Dirt" color="#ff0000" tile="-1" probability="1"/>
-    <wangcolor name="Grass" color="#00ff00" tile="-1" probability="1"/>
-    <wangtile tileid="0" wangid="0,0,0,1,0,0,0,0"/>
-    <wangtile tileid="1" wangid="0,2,0,1,0,1,0,2"/>
-    <wangtile tileid="2" wangid="0,0,0,0,0,1,0,0"/>
-    <wangtile tileid="10" wangid="0,1,0,1,0,2,0,2"/>
-    <wangtile tileid="11" wangid="0,1,0,1,0,1,0,1"/>
-    <wangtile tileid="12" wangid="0,2,0,2,0,1,0,1"/>
-    <wangtile tileid="20" wangid="0,1,0,0,0,0,0,0"/>
-    <wangtile tileid="21" wangid="0,1,0,2,0,2,0,1"/>
-    <wangtile tileid="22" wangid="0,0,0,0,0,0,0,1"/>
-    <wangtile tileid="40" wangid="0,0,0,2,0,0,0,0"/>
-    <wangtile tileid="41" wangid="0,1,0,2,0,2,0,1"/>
-    <wangtile tileid="42" wangid="0,0,0,0,0,2,0,0"/>
-    <wangtile tileid="50" wangid="0,2,0,2,0,1,0,1"/>
-    <wangtile tileid="51" wangid="0,2,0,2,0,2,0,2"/>
-    <wangtile tileid="52" wangid="0,1,0,1,0,2,0,2"/>
-    <wangtile tileid="60" wangid="0,2,0,0,0,0,0,0"/>
-    <wangtile tileid="61" wangid="0,2,0,1,0,1,0,2"/>
-    <wangtile tileid="62" wangid="0,0,0,0,0,0,0,2"/>
-    <wangtile tileid="84" wangid="0,1,0,2,0,1,0,1"/>
-    <wangtile tileid="85" wangid="0,1,0,1,0,2,0,1"/>
-    <wangtile tileid="86" wangid="0,2,0,1,0,2,0,2"/>
-    <wangtile tileid="87" wangid="0,2,0,2,0,1,0,2"/>
-    <wangtile tileid="94" wangid="0,2,0,1,0,1,0,1"/>
-    <wangtile tileid="95" wangid="0,1,0,1,0,1,0,2"/>
-    <wangtile tileid="96" wangid="0,1,0,2,0,2,0,2"/>
-    <wangtile tileid="97" wangid="0,2,0,2,0,2,0,1"/>
-    <wangtile tileid="100" wangid="0,0,0,1,0,0,0,1"/>
-    <wangtile tileid="101" wangid="0,1,0,0,0,1,0,0"/>
-    <wangtile tileid="102" wangid="0,0,0,2,0,0,0,2"/>
-    <wangtile tileid="103" wangid="0,2,0,0,0,2,0,0"/>
-   </wangset>
-  </wangsets>
- </tileset>
- <tileset firstgid="161" name="Basic Assets" tilewidth="139" tileheight="193" tilecount="11" columns="0">
-  <grid orientation="orthogonal" width="1" height="1"/>
-  <tile id="0">
-   <image source="../tilesets/basic_assets/house.png" width="139" height="193"/>
-  </tile>
-  <tile id="1">
-   <image source="../tilesets/basic_assets/log_1.png" width="12" height="32"/>
-  </tile>
-  <tile id="2">
-   <image source="../tilesets/basic_assets/log_2.png" width="42" height="14"/>
-  </tile>
-  <tile id="3">
-   <image source="../tilesets/basic_assets/sign.png" width="26" height="32"/>
-  </tile>
-  <tile id="4">
-   <image source="../tilesets/basic_assets/sign_arrow.png" width="30" height="33"/>
-  </tile>
-  <tile id="5">
-   <image source="../tilesets/basic_assets/stump_1.png" width="22" height="15"/>
-  </tile>
-  <tile id="6">
-   <image source="../tilesets/basic_assets/stump_2.png" width="16" height="14"/>
-  </tile>
-  <tile id="7">
-   <image source="../tilesets/basic_assets/stump_3.png" width="40" height="28"/>
-  </tile>
-  <tile id="8">
-   <image source="../tilesets/basic_assets/tree_1.png" width="52" height="92"/>
-  </tile>
-  <tile id="9">
-   <image source="../tilesets/basic_assets/tree_2.png" width="61" height="95"/>
-  </tile>
-  <tile id="10">
-   <image source="../tilesets/basic_assets/tree_3.png" width="80" height="128"/>
-  </tile>
- </tileset>
- <tileset firstgid="172" name="Fence Tiles" tilewidth="32" tileheight="32" tilecount="16" columns="4">
-  <image source="../tilesets/basic_terrain/fence_tiles.png" width="128" height="128"/>
-  <wangsets>
-   <wangset name="Fence" type="edge" tile="-1">
-    <wangcolor name="Fence" color="#ff0000" tile="-1" probability="1"/>
-    <wangtile tileid="0" wangid="0,0,1,0,1,0,0,0"/>
-    <wangtile tileid="1" wangid="0,0,1,0,1,0,1,0"/>
-    <wangtile tileid="2" wangid="0,0,0,0,1,0,1,0"/>
-    <wangtile tileid="3" wangid="0,0,0,0,1,0,0,0"/>
-    <wangtile tileid="4" wangid="1,0,1,0,1,0,0,0"/>
-    <wangtile tileid="5" wangid="1,0,1,0,1,0,1,0"/>
-    <wangtile tileid="6" wangid="1,0,0,0,1,0,1,0"/>
-    <wangtile tileid="7" wangid="1,0,0,0,1,0,0,0"/>
-    <wangtile tileid="8" wangid="1,0,1,0,0,0,0,0"/>
-    <wangtile tileid="9" wangid="1,0,1,0,0,0,1,0"/>
-    <wangtile tileid="10" wangid="1,0,0,0,0,0,1,0"/>
-    <wangtile tileid="11" wangid="1,0,0,0,0,0,0,0"/>
-    <wangtile tileid="12" wangid="0,0,1,0,0,0,0,0"/>
-    <wangtile tileid="13" wangid="0,0,1,0,0,0,1,0"/>
-    <wangtile tileid="14" wangid="0,0,0,0,0,0,1,0"/>
-   </wangset>
-  </wangsets>
- </tileset>
+<map version="1.10" tiledversion="1.11.2" orientation="orthogonal" renderorder="right-up" width="48" height="36" tilewidth="32" tileheight="32" infinite="0" nextlayerid="13" nextobjectid="46">
+ <tileset firstgid="1" source="../tilesets/basic_terrain.tsx"/>
+ <tileset firstgid="161" source="../tilesets/basic_assets.tsx"/>
+ <tileset firstgid="182" source="../tilesets/fence.tsx"/>
  <layer id="1" name="terrain" width="48" height="36">
   <data encoding="csv">
 52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,
@@ -122,7 +22,7 @@
 52,52,52,97,42,86,12,12,95,62,88,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,87,62,96,12,12,85,42,98,52,52,52,
 52,52,52,52,52,97,22,86,12,12,95,2,88,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,87,2,96,12,12,85,42,98,52,52,52,52,52,
 52,52,52,52,52,52,52,97,42,86,12,12,95,2,88,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,87,2,96,12,12,85,22,98,52,52,52,52,52,52,52,
-52,52,52,52,52,52,52,52,52,97,22,86,12,12,95,62,88,52,87,2,2,62,2,2,2,2,2,62,2,88,52,87,2,96,12,12,85,22,98,52,52,52,52,52,52,52,52,52,
+52,52,52,52,52,52,52,52,52,97,22,86,12,12,95,2,88,52,87,2,2,62,2,2,2,2,2,62,2,88,52,87,2,96,12,12,85,22,98,52,52,52,52,52,52,52,52,52,
 52,52,52,52,52,52,52,52,52,52,52,97,22,86,12,12,95,62,96,12,12,12,12,12,12,12,12,12,12,95,62,96,12,12,85,42,98,52,52,52,52,52,52,52,52,52,52,52,
 52,52,52,52,52,52,52,52,52,52,52,52,52,97,42,86,12,12,12,85,22,22,22,22,42,42,42,42,86,12,12,12,85,22,98,52,52,52,52,52,52,52,52,52,52,52,52,52,
 52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,53,12,12,85,98,52,52,52,52,52,52,52,52,97,86,12,12,13,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,
@@ -153,14 +53,14 @@
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-185,174,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,172,185,
-0,180,185,174,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,172,185,182,0,
-0,0,0,180,185,174,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,172,185,182,0,0,0,
-0,0,0,0,0,180,185,174,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,172,185,182,0,0,0,0,0,
-0,0,0,0,0,0,0,180,185,174,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,172,185,182,0,0,0,0,0,0,0,
-0,0,0,0,0,0,0,0,0,180,185,174,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,172,185,182,0,0,0,0,0,0,0,0,0,
-0,0,0,0,0,0,0,0,0,0,0,180,185,174,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,172,181,182,0,0,0,0,0,0,0,0,0,0,0,
-0,0,0,0,0,0,0,0,0,0,0,0,0,180,185,185,185,185,185,185,185,186,0,0,0,0,184,185,173,185,185,185,185,185,182,0,0,0,0,0,0,0,0,0,0,0,0,0,
+195,184,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,182,195,
+0,190,195,184,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,182,195,192,0,
+0,0,0,190,195,184,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,182,195,192,0,0,0,
+0,0,0,0,0,190,195,184,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,182,195,192,0,0,0,0,0,
+0,0,0,0,0,0,0,190,195,184,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,182,195,192,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,190,195,184,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,182,195,192,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,190,195,184,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,182,195,192,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,190,195,195,195,195,195,195,195,196,0,0,0,0,194,195,195,195,195,195,195,195,192,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -186,11 +86,73 @@
  <objectgroup id="7" name="objects">
   <object id="4" gid="161" x="1102" y="702" width="139" height="193"/>
   <object id="5" gid="170" x="1038" y="660" width="61" height="95"/>
+  <object id="34" gid="171" x="-56" y="593" width="80" height="128"/>
+  <object id="35" gid="171" x="-44.0568" y="509.409" width="80" height="128"/>
+  <object id="36" gid="171" x="-45" y="726" width="80" height="128"/>
+  <object id="37" gid="171" x="-21" y="658" width="80" height="128"/>
+  <object id="38" gid="171" x="-74" y="858" width="80" height="128"/>
+  <object id="39" gid="171" x="-43" y="929" width="80" height="128"/>
+  <object id="40" gid="171" x="-20" y="1065" width="80" height="128"/>
+  <object id="41" gid="171" x="-18" y="987" width="80" height="128"/>
   <object id="10" gid="170" x="1484" y="428" width="61" height="95"/>
-  <object id="11" x="1510" y="414.004" width="11" height="4"/>
+  <object id="44" x="0" y="-48" width="1536" height="32">
+   <properties>
+    <property name="buckotown-backyard" type="class" propertytype="monkebucko::game::topdown::Warp">
+     <properties>
+      <property name="offset_or_point" type="class" propertytype="glam::Vec2">
+       <properties>
+        <property name="x" type="float" value="0"/>
+        <property name="y" type="float" value="-1136"/>
+       </properties>
+      </property>
+      <property name="target_map" type="class" propertytype="monkebucko::game::topdown::TopdownMapIndex">
+       <properties>
+        <property name=":variant" propertytype="monkebucko::game::topdown::TopdownMapIndex:::Variant" value="Backyard"/>
+       </properties>
+      </property>
+     </properties>
+    </property>
+   </properties>
+  </object>
+  <object id="45" x="0" y="1168" width="1536" height="32">
+   <properties>
+    <property name="buckotown-beach" type="class" propertytype="monkebucko::game::topdown::Warp">
+     <properties>
+      <property name="offset_or_point" type="class" propertytype="glam::Vec2">
+       <properties>
+        <property name="x" type="float" value="1792"/>
+        <property name="y" type="float" value="1392"/>
+       </properties>
+      </property>
+      <property name="target_map" type="class" propertytype="monkebucko::game::topdown::TopdownMapIndex">
+       <properties>
+        <property name=":variant" propertytype="monkebucko::game::topdown::TopdownMapIndex:::Variant" value="Beach"/>
+       </properties>
+      </property>
+     </properties>
+    </property>
+   </properties>
+  </object>
  </objectgroup>
  <objectgroup id="11" name="hitboxes">
   <object id="7" x="1064" y="646" width="11" height="4"/>
   <object id="9" x="1108" y="602" width="127" height="96"/>
+  <object id="12" x="1480" y="257" width="56" height="30"/>
+  <object id="13" x="1416" y="289" width="78" height="30"/>
+  <object id="14" x="1352.38" y="321" width="78" height="30"/>
+  <object id="15" x="1288" y="353" width="78" height="30"/>
+  <object id="21" x="1223" y="384" width="78" height="30"/>
+  <object id="22" x="1160" y="416" width="78" height="30"/>
+  <object id="23" x="1095" y="448" width="78" height="30"/>
+  <object id="24" x="840" y="481" width="269" height="30"/>
+  <object id="25" x="424" y="482" width="269" height="30"/>
+  <object id="26" x="360" y="450" width="78" height="30"/>
+  <object id="27" x="296" y="417" width="78" height="30"/>
+  <object id="28" x="232" y="386" width="78" height="30"/>
+  <object id="29" x="168" y="353" width="78" height="30"/>
+  <object id="30" x="104.394" y="321.924" width="78" height="30"/>
+  <object id="31" x="40" y="289" width="78" height="30"/>
+  <object id="32" x="0" y="258" width="54" height="30"/>
+  <object id="11" x="1510" y="414.004" width="11" height="4"/>
  </objectgroup>
 </map>
