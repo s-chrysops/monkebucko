@@ -1,8 +1,137 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <map version="1.10" tiledversion="1.11.2" orientation="orthogonal" renderorder="right-up" width="48" height="36" tilewidth="32" tileheight="32" infinite="0" nextlayerid="13" nextobjectid="46">
- <tileset firstgid="1" source="../tilesets/basic_terrain.tsx"/>
- <tileset firstgid="161" source="../tilesets/basic_assets.tsx"/>
- <tileset firstgid="182" source="../tilesets/fence.tsx"/>
+ <tileset firstgid="1" name="basic_terrain" tilewidth="32" tileheight="32" tilecount="160" columns="10">
+  <image source="../tilesets/basic_terrain/terrain_tiles_v2.png" width="320" height="512"/>
+  <wangsets>
+   <wangset name="Basic" type="corner" tile="-1">
+    <wangcolor name="Dirt" color="#ff0000" tile="-1" probability="1"/>
+    <wangcolor name="Grass" color="#00ff00" tile="-1" probability="1"/>
+    <wangcolor name="Hills" color="#0000ff" tile="-1" probability="1"/>
+    <wangtile tileid="0" wangid="0,0,0,1,0,0,0,0"/>
+    <wangtile tileid="1" wangid="0,2,0,1,0,1,0,2"/>
+    <wangtile tileid="2" wangid="0,0,0,0,0,1,0,0"/>
+    <wangtile tileid="10" wangid="0,1,0,1,0,2,0,2"/>
+    <wangtile tileid="11" wangid="0,1,0,1,0,1,0,1"/>
+    <wangtile tileid="12" wangid="0,2,0,2,0,1,0,1"/>
+    <wangtile tileid="20" wangid="0,1,0,0,0,0,0,0"/>
+    <wangtile tileid="21" wangid="0,1,0,2,0,2,0,1"/>
+    <wangtile tileid="22" wangid="0,0,0,0,0,0,0,1"/>
+    <wangtile tileid="40" wangid="0,0,0,2,0,0,0,0"/>
+    <wangtile tileid="41" wangid="0,1,0,2,0,2,0,1"/>
+    <wangtile tileid="42" wangid="0,0,0,0,0,2,0,0"/>
+    <wangtile tileid="44" wangid="0,0,0,3,0,0,0,0"/>
+    <wangtile tileid="45" wangid="0,0,0,3,0,3,0,0"/>
+    <wangtile tileid="46" wangid="0,0,0,0,0,3,0,0"/>
+    <wangtile tileid="50" wangid="0,2,0,2,0,1,0,1"/>
+    <wangtile tileid="51" wangid="0,2,0,2,0,2,0,2"/>
+    <wangtile tileid="52" wangid="0,1,0,1,0,2,0,2"/>
+    <wangtile tileid="54" wangid="0,3,0,3,0,0,0,0"/>
+    <wangtile tileid="56" wangid="0,0,0,0,0,3,0,3"/>
+    <wangtile tileid="60" wangid="0,2,0,0,0,0,0,0"/>
+    <wangtile tileid="61" wangid="0,2,0,1,0,1,0,2"/>
+    <wangtile tileid="62" wangid="0,0,0,0,0,0,0,2"/>
+    <wangtile tileid="64" wangid="0,3,0,0,0,0,0,0"/>
+    <wangtile tileid="65" wangid="0,3,0,0,0,0,0,3"/>
+    <wangtile tileid="66" wangid="0,0,0,0,0,0,0,3"/>
+    <wangtile tileid="84" wangid="0,1,0,2,0,1,0,1"/>
+    <wangtile tileid="85" wangid="0,1,0,1,0,2,0,1"/>
+    <wangtile tileid="86" wangid="0,2,0,1,0,2,0,2"/>
+    <wangtile tileid="87" wangid="0,2,0,2,0,1,0,2"/>
+    <wangtile tileid="94" wangid="0,2,0,1,0,1,0,1"/>
+    <wangtile tileid="95" wangid="0,1,0,1,0,1,0,2"/>
+    <wangtile tileid="96" wangid="0,1,0,2,0,2,0,2"/>
+    <wangtile tileid="97" wangid="0,2,0,2,0,2,0,1"/>
+    <wangtile tileid="100" wangid="0,0,0,1,0,0,0,1"/>
+    <wangtile tileid="101" wangid="0,1,0,0,0,1,0,0"/>
+   </wangset>
+  </wangsets>
+ </tileset>
+ <tileset firstgid="161" name="basic_assets" tilewidth="139" tileheight="193" tilecount="20" columns="0">
+  <grid orientation="orthogonal" width="1" height="1"/>
+  <tile id="0">
+   <image source="../tilesets/basic_assets/house.png" width="139" height="193"/>
+  </tile>
+  <tile id="1">
+   <image source="../tilesets/basic_assets/log_1.png" width="12" height="32"/>
+  </tile>
+  <tile id="18">
+   <image source="../tilesets/basic_assets/log_2.png" width="12" height="28"/>
+  </tile>
+  <tile id="19">
+   <image source="../tilesets/basic_assets/log_3.png" width="28" height="29"/>
+  </tile>
+  <tile id="2">
+   <image source="../tilesets/basic_assets/log_4.png" width="42" height="14"/>
+  </tile>
+  <tile id="3">
+   <image source="../tilesets/basic_assets/sign_1.png" width="26" height="32"/>
+  </tile>
+  <tile id="4">
+   <image source="../tilesets/basic_assets/sign_2.png" width="30" height="33"/>
+  </tile>
+  <tile id="20">
+   <image source="../tilesets/basic_assets/sign_3.png" width="30" height="44"/>
+  </tile>
+  <tile id="5">
+   <image source="../tilesets/basic_assets/stump_1.png" width="22" height="15"/>
+  </tile>
+  <tile id="6">
+   <image source="../tilesets/basic_assets/stump_2.png" width="16" height="14"/>
+  </tile>
+  <tile id="7">
+   <image source="../tilesets/basic_assets/stump_3.png" width="40" height="28"/>
+  </tile>
+  <tile id="8">
+   <image source="../tilesets/basic_assets/tree_a1.png" width="52" height="92"/>
+  </tile>
+  <tile id="11">
+   <image source="../tilesets/basic_assets/tree_a2.png" width="52" height="92"/>
+  </tile>
+  <tile id="12">
+   <image source="../tilesets/basic_assets/tree_a3.png" width="52" height="92"/>
+  </tile>
+  <tile id="9">
+   <image source="../tilesets/basic_assets/tree_b1.png" width="61" height="95"/>
+  </tile>
+  <tile id="13">
+   <image source="../tilesets/basic_assets/tree_b2.png" width="61" height="95"/>
+  </tile>
+  <tile id="14">
+   <image source="../tilesets/basic_assets/tree_b3.png" width="61" height="95"/>
+  </tile>
+  <tile id="10">
+   <image source="../tilesets/basic_assets/tree_c1.png" width="80" height="128"/>
+  </tile>
+  <tile id="17">
+   <image source="../tilesets/basic_assets/tree_c2.png" width="80" height="128"/>
+  </tile>
+  <tile id="16">
+   <image source="../tilesets/basic_assets/tree_c3.png" width="80" height="128"/>
+  </tile>
+ </tileset>
+ <tileset firstgid="182" name="fence" tilewidth="32" tileheight="32" tilecount="16" columns="4">
+  <image source="../tilesets/basic_terrain/fence_tiles.png" width="128" height="128"/>
+  <wangsets>
+   <wangset name="Fence" type="edge" tile="-1">
+    <wangcolor name="Fence" color="#ff0000" tile="-1" probability="1"/>
+    <wangtile tileid="0" wangid="0,0,1,0,1,0,0,0"/>
+    <wangtile tileid="1" wangid="0,0,1,0,1,0,1,0"/>
+    <wangtile tileid="2" wangid="0,0,0,0,1,0,1,0"/>
+    <wangtile tileid="3" wangid="0,0,0,0,1,0,0,0"/>
+    <wangtile tileid="4" wangid="1,0,1,0,1,0,0,0"/>
+    <wangtile tileid="5" wangid="1,0,1,0,1,0,1,0"/>
+    <wangtile tileid="6" wangid="1,0,0,0,1,0,1,0"/>
+    <wangtile tileid="7" wangid="1,0,0,0,1,0,0,0"/>
+    <wangtile tileid="8" wangid="1,0,1,0,0,0,0,0"/>
+    <wangtile tileid="9" wangid="1,0,1,0,0,0,1,0"/>
+    <wangtile tileid="10" wangid="1,0,0,0,0,0,1,0"/>
+    <wangtile tileid="11" wangid="1,0,0,0,0,0,0,0"/>
+    <wangtile tileid="12" wangid="0,0,1,0,0,0,0,0"/>
+    <wangtile tileid="13" wangid="0,0,1,0,0,0,1,0"/>
+    <wangtile tileid="14" wangid="0,0,0,0,0,0,1,0"/>
+   </wangset>
+  </wangsets>
+ </tileset>
  <layer id="1" name="terrain" width="48" height="36">
   <data encoding="csv">
 52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,52,
