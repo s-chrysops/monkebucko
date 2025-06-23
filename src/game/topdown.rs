@@ -99,14 +99,21 @@ pub fn topdown_plugin(app: &mut App) {
             Update,
             (camera_system, play_animations, update_player_z).run_if(in_state(GameState::TopDown)),
         )
-        .add_observer(set_tiled_object_z)
+        .add_observer(setup_current_map)
         .register_type::<MoveInput>()
         .register_type::<SpriteAnimation>()
-        .init_resource::<MapRect>()
+        .register_type::<Warp>()
+        .init_resource::<CurrentMap>()
+        .init_resource::<TopdownMapHandles>()
         .add_event::<SpriteAnimationFinished>();
 }
 
-fn topdown_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn topdown_setup(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    topdown_maps: Res<TopdownMapHandles>,
+    current_map: ResMut<CurrentMap>,
+) {
     use crate::auto_scaling::AspectRatio;
     use bevy::render::camera::ScalingMode;
 
@@ -143,58 +150,189 @@ fn topdown_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         RENDER_LAYER_WORLD,
     ));
 
-    let buckoville: Handle<TiledMap> = asset_server.load("maps/buckoville.tmx");
-
-    commands.spawn(TiledMapHandle(buckoville)).observe(
-        |trigger: Trigger<TiledColliderCreated>, mut commands: Commands| {
-            commands.entity(trigger.entity).insert(RigidBody::Static);
-        },
-    );
+    commands
+        .spawn(TiledMapHandle(topdown_maps[current_map.index].clone_weak()))
+        .observe(setup_collider_bodies);
 }
 
-#[derive(Debug, Default, Deref, DerefMut, Resource)]
-struct MapRect(Rect);
+fn setup_collider_bodies(
+    trigger: Trigger<TiledColliderCreated>,
+    mut commands: Commands,
+    q_tiled_objects: Query<Option<&Warp>, With<TiledMapObject>>,
+    q_tiled_colliders: Query<&ChildOf, With<TiledColliderMarker>>,
+) {
+    let ChildOf(parent) = q_tiled_colliders
+        .get(trigger.entity)
+        .expect("Failed to get collider parent");
+
+    let warp = q_tiled_objects
+        .get(*parent)
+        .expect("Failed to get object from query");
+
+    if warp.is_some() {
+        commands
+            .entity(trigger.entity)
+            .insert((Sensor, CollisionEventsEnabled))
+            .observe(warp_player);
+    }
+
+    commands.entity(trigger.entity).insert(RigidBody::Static);
+}
+
+const TOTAL_TOPDOWN_MAPS: usize = 7;
+
+#[derive(Clone, Copy, Debug, Default, Reflect)]
+#[reflect(Default)]
+enum TopdownMapIndex {
+    Mountain,
+    Backyard,
+    Fields,
+    Forest,
+    #[default]
+    Buckotown,
+    Farm,
+    Beach,
+}
+
+#[derive(Debug, Deref, Resource)]
+struct TopdownMapHandles([Handle<TiledMap>; TOTAL_TOPDOWN_MAPS]);
+
+impl std::ops::Index<TopdownMapIndex> for [Handle<TiledMap>] {
+    type Output = Handle<TiledMap>;
+
+    fn index(&self, index: TopdownMapIndex) -> &Self::Output {
+        &self[index as usize]
+    }
+}
+
+impl FromWorld for TopdownMapHandles {
+    fn from_world(world: &mut World) -> Self {
+        const MAP_PATHS: [&str; TOTAL_TOPDOWN_MAPS] = [
+            "maps/mountains.tmx",
+            "maps/backyard.tmx",
+            "maps/fields.tmx",
+            "maps/forest.tmx",
+            "maps/buckotown.tmx",
+            "maps/farm.tmx",
+            "maps/beach.tmx",
+        ];
+
+        TopdownMapHandles(
+            MAP_PATHS.map(|path| world.resource::<AssetServer>().load::<TiledMap>(path)),
+        )
+    }
+}
+
+#[derive(Component, Reflect, Default)]
+#[reflect(Component, Default)]
+struct Warp {
+    target_map:      TopdownMapIndex,
+    point_mode:      bool,
+    offset_or_point: Vec2,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn warp_player(
+    trigger: Trigger<OnCollisionStart>,
+    q_tiled_colliders: Query<&ChildOf, With<TiledColliderMarker>>,
+    q_tiled_objects: Query<&Warp, With<TiledMapObject>>,
+    tiled_map: Single<Entity, With<TiledMapMarker>>,
+    topdown_maps: Res<TopdownMapHandles>,
+    mut current_map: ResMut<CurrentMap>,
+    player: Single<(Entity, &mut Transform), (With<Player>, Without<WorldCamera>)>,
+    camera: Single<&mut Transform, With<WorldCamera>>,
+    mut commands: Commands,
+) {
+    let ChildOf(parent) = q_tiled_colliders
+        .get(trigger.target())
+        .expect("Failed to get collider parent");
+
+    let warp = q_tiled_objects
+        .get(*parent)
+        .expect("Failed to get object from query");
+
+    let (player_entity, mut player_transform) = player.into_inner();
+
+    if trigger.collider != player_entity {
+        warn!("wtf");
+        return;
+    }
+    current_map.index = warp.target_map;
+
+    let Vec3 { x, y, z } = player_transform.translation;
+    info!("Player at ({}, {}, {})", x, y, z);
+
+    match warp.point_mode {
+        true => player_transform.translation = warp.offset_or_point.extend(0.0),
+        false => player_transform.translation += warp.offset_or_point.extend(0.0),
+    };
+
+    camera.into_inner().translation = player_transform.translation;
+
+    let Vec3 { x, y, z } = player_transform.translation;
+    info!(
+        "Warping player to {:?} ({}, {}, {})",
+        warp.target_map, x, y, z
+    );
+
+    commands.entity(*tiled_map).despawn();
+    commands
+        .spawn(TiledMapHandle(topdown_maps[warp.target_map].clone_weak()))
+        .observe(setup_collider_bodies);
+}
+
+// #[derive(Debug, Default, Deref, DerefMut, Resource)]
+// struct MapRect(Rect);
+
+#[derive(Debug, Default, Resource)]
+struct CurrentMap {
+    index: TopdownMapIndex,
+    rect:  Rect,
+}
 
 const Z_BETWEEN_LAYERS: f32 = 100.0;
 
-fn set_tiled_object_z(
+fn setup_current_map(
     trigger: Trigger<TiledMapCreated>,
     q_tiled_maps: Query<&mut TiledMapStorage, With<TiledMapMarker>>,
     mut q_tiled_objects: Query<&mut Transform, With<TiledMapObject>>,
     a_tiled_maps: Res<Assets<TiledMap>>,
-    mut map_rect_cached: ResMut<MapRect>,
+    mut current_map: ResMut<CurrentMap>,
 ) {
     let Some(tiled_map) = trigger.event().get_map_asset(&a_tiled_maps) else {
+        warn!("Failed to load Tiled map asset");
         return;
     };
-    let tilemap_size = tiled_map.tilemap_size;
-    info!("Map Size = x: {}, y: {}", tilemap_size.x, tilemap_size.y);
-    let map_rect = tiled_map.rect;
-    map_rect_cached.0 = map_rect;
+
+    // let tilemap_size = tiled_map.tilemap_size;
+    // info!("Map Size = x: {}, y: {}", tilemap_size.x, tilemap_size.y);
+    current_map.rect = tiled_map.rect;
 
     let Ok(map_storage) = q_tiled_maps.get(trigger.entity) else {
+        warn!("Failed to load Tiled map storage");
         return;
     };
 
     // Objects higher up on the map will be given a greater negative z-offset
     map_storage.objects.iter().for_each(|(_tiled_id, entity)| {
         if let Ok(mut transform) = q_tiled_objects.get_mut(*entity) {
-            let offset_y = transform.translation.y - map_rect.min.y;
-            transform.translation.z -= offset_y / map_rect.height() * Z_BETWEEN_LAYERS;
+            let offset_y = transform.translation.y - tiled_map.rect.min.y;
+            transform.translation.z -= offset_y / tiled_map.rect.height() * Z_BETWEEN_LAYERS;
         }
     });
 }
 
 fn update_player_z(
     player: Single<&mut Transform, (With<Player>, Changed<Transform>)>,
-    map_rect: Res<MapRect>,
+    current_map: Res<CurrentMap>,
 ) {
-    if map_rect.0 == Rect::default() {
+    if current_map.rect == Rect::default() {
         return;
     }
     let mut transform = player.into_inner();
-    let offset_y = transform.translation.y - map_rect.min.y;
-    transform.translation.z = -offset_y / map_rect.height() * Z_BETWEEN_LAYERS - Z_BETWEEN_LAYERS;
+    let offset_y = transform.translation.y - current_map.rect.min.y;
+    transform.translation.z =
+        -offset_y / current_map.rect.height() * Z_BETWEEN_LAYERS - Z_BETWEEN_LAYERS;
 }
 
 fn spawn_player(
@@ -222,10 +360,7 @@ fn spawn_player(
                     index:  0,
                 },
             ),
-            MoveInput {
-                input_vector:   Vec2::ZERO,
-                last_direction: Dir2::EAST,
-            },
+            MoveInput::default(),
             HopState::Idle,
             SpriteAnimation::set_frame(0),
             //
@@ -240,16 +375,6 @@ fn spawn_player(
         .observe(update_player_hop)
         .observe(cycle_hop_animations);
 }
-
-// #[derive(Debug)]
-// struct DelayTimer(Timer);
-
-// impl Default for DelayTimer {
-//     fn default() -> Self {
-//         const MOVEMENT_DELAY: f32 = 0.0001;
-//         Self(Timer::from_seconds(MOVEMENT_DELAY, TimerMode::Once))
-//     }
-// }
 
 #[derive(Debug, Event)]
 struct HopUpdate;
@@ -281,6 +406,15 @@ impl HopState {
 struct MoveInput {
     input_vector:   Vec2,
     last_direction: Dir2,
+}
+
+impl Default for MoveInput {
+    fn default() -> Self {
+        MoveInput {
+            input_vector:   Vec2::ZERO,
+            last_direction: Dir2::EAST,
+        }
+    }
 }
 
 fn set_player_hop(
@@ -377,7 +511,7 @@ fn update_player_hop(
 fn camera_system(
     mut camera_transform: Single<&mut Transform, With<WorldCamera>>,
     player: Single<(&Transform, &MoveInput), (With<Player>, Without<WorldCamera>)>,
-    map_rect: Res<MapRect>,
+    current_map: Res<CurrentMap>,
     mut stopwatch: Local<Stopwatch>,
     mut target_direction: Local<Vec2>,
     time: Res<Time>,
@@ -405,8 +539,8 @@ fn camera_system(
     let camera_target = player_transform.translation + camera_offset;
 
     // Bounds camera from rendering the void outside the current map
-    let camera_min = (map_rect.min + (view_size / 2.0) - HALF_TILE_SIZE).extend(f32::MIN);
-    let camera_max = (map_rect.max - (view_size / 2.0) - HALF_TILE_SIZE).extend(f32::MAX);
+    let camera_min = (current_map.rect.min + (view_size / 2.0) - HALF_TILE_SIZE).extend(f32::MIN);
+    let camera_max = (current_map.rect.max - (view_size / 2.0) - HALF_TILE_SIZE).extend(f32::MAX);
 
     camera_transform.translation = camera_transform
         .translation
