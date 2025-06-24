@@ -1,91 +1,13 @@
 #![allow(clippy::type_complexity)]
-use std::time::Duration;
-
 use avian2d::prelude::*;
 use bevy::{prelude::*, time::Stopwatch};
 use bevy_ecs_tiled::prelude::*;
 
 use super::*;
-use crate::{RENDER_LAYER_WORLD, WINDOW_HEIGHT, WINDOW_WIDTH};
+use crate::{RENDER_LAYER_WORLD, WINDOW_HEIGHT, WINDOW_WIDTH, animation::*};
 
 #[derive(Debug, Component)]
 struct OnTopDown;
-
-#[derive(Debug, Event, Deref, PartialEq)]
-struct SpriteAnimationFinished(Entity);
-
-#[derive(Debug, Component, Reflect)]
-#[reflect(Component)]
-struct SpriteAnimation {
-    first_index: usize,
-    last_index:  usize,
-    frame_timer: Timer,
-    looping:     bool,
-}
-
-impl SpriteAnimation {
-    fn new(first: usize, last: usize, fps: u8) -> Self {
-        SpriteAnimation {
-            first_index: first,
-            last_index:  last,
-            frame_timer: Self::timer_from_fps(fps),
-            looping:     false,
-        }
-    }
-
-    fn _looping(mut self) -> Self {
-        self.looping = true;
-        self
-    }
-
-    // a little hack to change sprite without the Sprite component
-    fn set_frame(index: usize) -> Self {
-        SpriteAnimation {
-            first_index: index,
-            last_index:  index,
-            frame_timer: Self::timer_from_fps(240),
-            looping:     true,
-        }
-    }
-
-    fn timer_from_fps(fps: u8) -> Timer {
-        Timer::new(Duration::from_secs_f32(1.0 / (fps as f32)), TimerMode::Once)
-    }
-}
-
-fn play_animations(
-    mut commands: Commands,
-    mut e_writer: EventWriter<SpriteAnimationFinished>,
-    mut query: Query<(Entity, &mut SpriteAnimation, &mut Sprite)>,
-    time: Res<Time>,
-) {
-    query
-        .iter_mut()
-        .for_each(|(entity, mut animation, mut sprite)| {
-            animation.frame_timer.tick(time.delta());
-            if animation.frame_timer.just_finished() {
-                let atlas = sprite
-                    .texture_atlas
-                    .as_mut()
-                    .expect("Animated Sprite with no Texture Atlas");
-
-                if animation.first_index == animation.last_index {
-                    atlas.index = animation.first_index;
-                    e_writer.write(SpriteAnimationFinished(entity));
-                    commands.trigger_targets(SpriteAnimationFinished(entity), entity);
-                } else if atlas.index < animation.last_index {
-                    atlas.index += 1;
-                    animation.frame_timer.reset();
-                } else if animation.looping {
-                    atlas.index = animation.first_index;
-                    animation.frame_timer.reset();
-                } else {
-                    e_writer.write(SpriteAnimationFinished(entity));
-                    commands.trigger_targets(SpriteAnimationFinished(entity), entity);
-                }
-            }
-        });
-}
 
 pub fn topdown_plugin(app: &mut App) {
     app.add_systems(OnEnter(GameState::TopDown), (spawn_player, topdown_setup))
@@ -97,15 +19,13 @@ pub fn topdown_plugin(app: &mut App) {
         )
         .add_systems(
             Update,
-            (camera_system, play_animations, update_player_z).run_if(in_state(GameState::TopDown)),
+            (camera_system, update_player_z).run_if(in_state(GameState::TopDown)),
         )
         .add_observer(setup_current_map)
         .register_type::<MoveInput>()
-        .register_type::<SpriteAnimation>()
         .register_type::<Warp>()
         .init_resource::<CurrentMap>()
-        .init_resource::<TopdownMapHandles>()
-        .add_event::<SpriteAnimationFinished>();
+        .init_resource::<TopdownMapHandles>();
 }
 
 fn topdown_setup(
@@ -153,6 +73,44 @@ fn topdown_setup(
     commands
         .spawn(TiledMapHandle(topdown_maps[current_map.index].clone_weak()))
         .observe(setup_collider_bodies);
+}
+
+#[derive(Debug, Default, Resource)]
+struct CurrentMap {
+    index: TopdownMapIndex,
+    rect:  Rect,
+}
+
+const Z_BETWEEN_LAYERS: f32 = 100.0;
+
+fn setup_current_map(
+    trigger: Trigger<TiledMapCreated>,
+    q_tiled_maps: Query<&mut TiledMapStorage, With<TiledMapMarker>>,
+    mut q_tiled_objects: Query<&mut Transform, With<TiledMapObject>>,
+    a_tiled_maps: Res<Assets<TiledMap>>,
+    mut current_map: ResMut<CurrentMap>,
+) {
+    let Some(tiled_map) = trigger.event().get_map_asset(&a_tiled_maps) else {
+        warn!("Failed to load Tiled map asset");
+        return;
+    };
+
+    // let tilemap_size = tiled_map.tilemap_size;
+    // info!("Map Size = x: {}, y: {}", tilemap_size.x, tilemap_size.y);
+    current_map.rect = tiled_map.rect;
+
+    let Ok(map_storage) = q_tiled_maps.get(trigger.entity) else {
+        warn!("Failed to load Tiled map storage");
+        return;
+    };
+
+    // Objects higher up on the map will be given a greater negative z-offset
+    map_storage.objects.iter().for_each(|(_tiled_id, entity)| {
+        if let Ok(mut transform) = q_tiled_objects.get_mut(*entity) {
+            let offset_y = transform.translation.y - tiled_map.rect.min.y;
+            transform.translation.z -= offset_y / tiled_map.rect.height() * Z_BETWEEN_LAYERS;
+        }
+    });
 }
 
 fn setup_collider_bodies(
@@ -281,60 +239,6 @@ fn warp_player(
         .observe(setup_collider_bodies);
 }
 
-// #[derive(Debug, Default, Deref, DerefMut, Resource)]
-// struct MapRect(Rect);
-
-#[derive(Debug, Default, Resource)]
-struct CurrentMap {
-    index: TopdownMapIndex,
-    rect:  Rect,
-}
-
-const Z_BETWEEN_LAYERS: f32 = 100.0;
-
-fn setup_current_map(
-    trigger: Trigger<TiledMapCreated>,
-    q_tiled_maps: Query<&mut TiledMapStorage, With<TiledMapMarker>>,
-    mut q_tiled_objects: Query<&mut Transform, With<TiledMapObject>>,
-    a_tiled_maps: Res<Assets<TiledMap>>,
-    mut current_map: ResMut<CurrentMap>,
-) {
-    let Some(tiled_map) = trigger.event().get_map_asset(&a_tiled_maps) else {
-        warn!("Failed to load Tiled map asset");
-        return;
-    };
-
-    // let tilemap_size = tiled_map.tilemap_size;
-    // info!("Map Size = x: {}, y: {}", tilemap_size.x, tilemap_size.y);
-    current_map.rect = tiled_map.rect;
-
-    let Ok(map_storage) = q_tiled_maps.get(trigger.entity) else {
-        warn!("Failed to load Tiled map storage");
-        return;
-    };
-
-    // Objects higher up on the map will be given a greater negative z-offset
-    map_storage.objects.iter().for_each(|(_tiled_id, entity)| {
-        if let Ok(mut transform) = q_tiled_objects.get_mut(*entity) {
-            let offset_y = transform.translation.y - tiled_map.rect.min.y;
-            transform.translation.z -= offset_y / tiled_map.rect.height() * Z_BETWEEN_LAYERS;
-        }
-    });
-}
-
-fn update_player_z(
-    player: Single<&mut Transform, (With<Player>, Changed<Transform>)>,
-    current_map: Res<CurrentMap>,
-) {
-    if current_map.rect == Rect::default() {
-        return;
-    }
-    let mut transform = player.into_inner();
-    let offset_y = transform.translation.y - current_map.rect.min.y;
-    transform.translation.z =
-        -offset_y / current_map.rect.height() * Z_BETWEEN_LAYERS - Z_BETWEEN_LAYERS;
-}
-
 fn spawn_player(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -374,6 +278,19 @@ fn spawn_player(
         ))
         .observe(update_player_hop)
         .observe(cycle_hop_animations);
+}
+
+fn update_player_z(
+    player: Single<&mut Transform, (With<Player>, Changed<Transform>)>,
+    current_map: Res<CurrentMap>,
+) {
+    if current_map.rect == Rect::default() {
+        return;
+    }
+    let mut transform = player.into_inner();
+    let offset_y = transform.translation.y - current_map.rect.min.y;
+    transform.translation.z =
+        -offset_y / current_map.rect.height() * Z_BETWEEN_LAYERS - Z_BETWEEN_LAYERS;
 }
 
 #[derive(Debug, Event)]

@@ -14,16 +14,17 @@ use bevy_persistent::prelude::*;
 use bevy_rand::{plugin::EntropyPlugin, prelude::WyRand};
 use bevy_text_animation::TextAnimatorPlugin;
 use serde::{Deserialize, Serialize};
-// use vleue_kinetoscope::AnimatedImagePlugin;
 
 mod auto_scaling;
 
+use animation::sprite_animations_plugin;
 use game::game_plugin;
 use menu::menu_plugin;
 use splash::splash_plugin;
 
 use crate::auto_scaling::ScalePlugin;
 
+mod animation;
 mod game;
 mod menu;
 mod splash;
@@ -92,8 +93,8 @@ fn main() {
         ScalePlugin,
         TiledMapPlugin(TiledMapPluginConfig {
             // Fixes crash on WASM
-            // I don't think I need this...
             tiled_types_export_file: None,
+            // ..default()
         }),
         TiledPhysicsPlugin::<TiledPhysicsAvianBackend>::default(),
         PhysicsPlugins::default().with_length_unit(32.0),
@@ -105,7 +106,12 @@ fn main() {
     //     enable_multipass_for_primary_context: true,
     // })
     // .add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new())
-    .add_plugins((menu_plugin, splash_plugin, game_plugin))
+    .add_plugins((
+        game_plugin,
+        menu_plugin,
+        splash_plugin,
+        sprite_animations_plugin,
+    ))
     .init_state::<AppState>()
     .add_systems(Startup, (setup, initialize_settings))
     // .insert_resource(DebugPickingMode::Normal)
@@ -133,11 +139,6 @@ fn setup(mut commands: Commands) {
         // Msaa::Off,
         RENDER_LAYER_OVERLAY,
     ));
-
-    // commands.spawn((
-    //     vleue_kinetoscope::AnimatedImageController::play(asset_server.load("test.gif")),
-    //     bevy::render::view::RenderLayers::layer(1),
-    // ));
 }
 
 fn initialize_settings(mut commands: Commands) {
