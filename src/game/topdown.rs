@@ -22,6 +22,7 @@ pub fn topdown_plugin(app: &mut App) {
             (camera_system, update_player_z).run_if(in_state(GameState::TopDown)),
         )
         .add_observer(setup_current_map)
+        .register_type::<HopState>()
         .register_type::<MoveInput>()
         .register_type::<Warp>()
         .init_resource::<CurrentMap>()
@@ -142,11 +143,11 @@ const TOTAL_TOPDOWN_MAPS: usize = 7;
 #[derive(Clone, Copy, Debug, Default, Reflect)]
 #[reflect(Default)]
 enum TopdownMapIndex {
+    #[default]
     Mountain,
     Backyard,
     Fields,
     Forest,
-    #[default]
     Buckotown,
     Farm,
     Beach,
@@ -296,12 +297,13 @@ fn update_player_z(
 #[derive(Debug, Event)]
 struct HopUpdate;
 
-#[derive(Debug, Default, Component, Clone, Copy, Reflect)]
+#[derive(Debug, Default, Component, Clone, Copy, PartialEq, Reflect)]
 enum HopState {
     Ready,
     Charging,
     Airborne,
     Landing,
+    Landed,
     #[default]
     Idle,
 }
@@ -312,7 +314,8 @@ impl HopState {
             HopState::Ready => HopState::Charging,
             HopState::Charging => HopState::Airborne,
             HopState::Airborne => HopState::Landing,
-            HopState::Landing => HopState::Idle,
+            HopState::Landing => HopState::Landed,
+            HopState::Landed => HopState::Idle,
             HopState::Idle => HopState::Idle,
         };
     }
@@ -321,15 +324,15 @@ impl HopState {
 #[derive(Debug, Component, Clone, Copy, Reflect)]
 #[reflect(Component)]
 struct MoveInput {
-    input_vector:   Vec2,
-    last_direction: Dir2,
+    input_vector: Vec2,
+    direction:    Dir2,
 }
 
 impl Default for MoveInput {
     fn default() -> Self {
         MoveInput {
-            input_vector:   Vec2::ZERO,
-            last_direction: Dir2::EAST,
+            input_vector: Vec2::ZERO,
+            direction:    Dir2::EAST,
         }
     }
 }
@@ -355,9 +358,15 @@ fn set_player_hop(
     }
 
     let (entity, mut move_input, mut hop_state) = player.into_inner();
+
     move_input.input_vector = input_vector;
+
+    if *hop_state != HopState::Idle {
+        return;
+    }
+
     if let Ok(new_direction) = Dir2::new(input_vector) {
-        move_input.last_direction = new_direction;
+        move_input.direction = new_direction;
         *hop_state = HopState::Ready;
         commands.trigger_targets(HopUpdate, entity);
     }
@@ -375,7 +384,6 @@ fn cycle_hop_animations(
 
 fn update_player_hop(
     _trigger: Trigger<HopUpdate>,
-    mut movement_state: ResMut<NextState<MovementState>>,
     player: Single<
         (
             &MoveInput,
@@ -385,43 +393,43 @@ fn update_player_hop(
         ),
         With<Player>,
     >,
+    mut index_offset: Local<usize>,
 ) {
     const HOP_IMPULSE: f32 = 128.0;
     const SPRITES_PER_ROW: usize = 8;
 
     let (move_input, hop_state, mut animation, mut velocity) = player.into_inner();
 
-    // Map direction to spritesheet y-offset
-    // x.signum() will suffice whilst only right/left sprites are present
-    let index_offset = SPRITES_PER_ROW
-        * match move_input.last_direction.x.signum() {
-            // Facing right
-            1.0 => 0,
-            // Facing left
-            -1.0 => 1,
-            // Up or down, default to right
-            _ => 0,
-        };
-
     match hop_state {
         HopState::Ready => {
-            movement_state.set(MovementState::Disabled);
-            *animation = SpriteAnimation::set_frame(index_offset);
+            // Map direction to spritesheet y-offset
+            *index_offset = match move_input.direction {
+                Dir2::NORTH => *index_offset,
+                Dir2::SOUTH => *index_offset,
+                Dir2::EAST => 0,
+                Dir2::WEST => SPRITES_PER_ROW,
+                Dir2::NORTH_EAST => 0,
+                Dir2::NORTH_WEST => SPRITES_PER_ROW,
+                Dir2::SOUTH_EAST => 0,
+                Dir2::SOUTH_WEST => SPRITES_PER_ROW,
+                _ => unreachable!(),
+            };
+            *animation = SpriteAnimation::set_frame(*index_offset);
         }
         HopState::Charging => {
-            *animation = SpriteAnimation::new(1 + index_offset, 2 + index_offset, 12);
+            *animation = SpriteAnimation::new(1 + *index_offset, 2 + *index_offset, 12);
         }
         HopState::Airborne => {
-            *velocity = LinearVelocity(move_input.last_direction * HOP_IMPULSE);
-            *animation = SpriteAnimation::new(3 + index_offset, 5 + index_offset, 12);
+            *velocity = LinearVelocity(move_input.direction * HOP_IMPULSE);
+            *animation = SpriteAnimation::new(3 + *index_offset, 5 + *index_offset, 12);
         }
         HopState::Landing => {
-            *animation = SpriteAnimation::new(6 + index_offset, 7 + index_offset, 12);
+            *animation = SpriteAnimation::new(6 + *index_offset, 7 + *index_offset, 12);
         }
-        HopState::Idle => {
-            movement_state.set(MovementState::Enabled);
-            *animation = SpriteAnimation::set_frame(index_offset);
+        HopState::Landed => {
+            *animation = SpriteAnimation::set_frame(*index_offset);
         }
+        HopState::Idle => {}
     }
 }
 

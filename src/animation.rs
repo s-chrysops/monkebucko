@@ -36,7 +36,7 @@ impl SpriteAnimation {
             first_index: index,
             last_index:  index,
             frame_timer: Self::timer_from_fps(240),
-            looping:     true,
+            looping:     false,
         }
     }
 
@@ -60,29 +60,40 @@ fn play_animations(
     query
         .iter_mut()
         .for_each(|(entity, mut animation, mut sprite)| {
-            animation.frame_timer.tick(time.delta());
-            if animation.frame_timer.just_finished() {
+            if animation.frame_timer.tick(time.delta()).just_finished() {
                 let atlas = sprite
                     .texture_atlas
                     .as_mut()
                     .expect("Animated Sprite with no Texture Atlas");
 
-                let event = SpriteAnimationFinished(entity);
+                // let previous_index = atlas.index;
 
                 if animation.first_index == animation.last_index {
                     atlas.index = animation.first_index;
-                    e_writer.write(event);
-                    commands.trigger_targets(event, entity);
+                }
+
+                if atlas.index == animation.last_index {
+                    if animation.looping {
+                        atlas.index = animation.first_index;
+                        animation.frame_timer.reset();
+                    } else {
+                        let event = SpriteAnimationFinished(entity);
+                        e_writer.write(event);
+                        commands.trigger_targets(event, entity);
+                    }
                 } else if atlas.index < animation.last_index {
                     atlas.index += 1;
                     animation.frame_timer.reset();
-                } else if animation.looping {
-                    atlas.index = animation.first_index;
-                    animation.frame_timer.reset();
-                } else {
-                    e_writer.write(event);
-                    commands.trigger_targets(event, entity);
                 }
+
+                // info!(
+                //     "Playing sprite index {} - {}",
+                //     animation.first_index, animation.last_index
+                // );
+                // info!(
+                //     "Previous index: {} Current index: {}",
+                //     previous_index, atlas.index
+                // );
             }
         });
 }
