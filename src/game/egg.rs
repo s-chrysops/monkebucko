@@ -87,15 +87,10 @@ pub fn egg_plugin(app: &mut App) {
             .run_if(in_state(MovementState::Enabled))
             .run_if(pressing_interact_key),
     )
+    .add_systems(OnEnter(EggState::Special), setup_camera_movements)
     .add_systems(
         Update,
-        (egg_special, update_crack)
-            .run_if(in_state(GameState::Egg))
-            .run_if(in_state(EggState::Special)),
-    )
-    .add_systems(
-        OnEnter(EggState::Special),
-        setup_camera_movements.run_if(in_state(GameState::Egg)),
+        (egg_special, update_crack).run_if(in_state(EggState::Special)),
     )
     .init_state::<EggState>()
     .init_resource::<StarResources>();
@@ -342,7 +337,8 @@ fn spawn_world(
             MeshMaterial3d(crack_materials[0].clone_weak()),
             crack_materials,
             PICKABLE,
-            EntityInteraction::special(move |commands: &mut Commands, _entity: Entity| {
+            EntityInteraction::Special,
+            SpecialInteraction::new(move |commands: &mut Commands, _entity: Entity| {
                 commands.set_state(EggState::Special);
             }),
         ))
@@ -1461,6 +1457,7 @@ fn get_egg_interactions(
         .distance(target_transform.translation)
         > INTERACTION_RANGE
     {
+        debug!("Interaction target not in range");
         return None;
     }
 

@@ -52,30 +52,28 @@ fn game_setup(mut commands: Commands) {
 #[derive(Debug, Component)]
 struct InteractTarget(Option<Entity>);
 
-type SpecialInteractionFn = Arc<dyn Fn(&mut Commands, Entity) + Send + Sync>;
-
 #[derive(Clone, Component)]
 enum EntityInteraction {
     Text(&'static str),
-    Special(SpecialInteractionFn),
+    Special,
 }
 
-impl EntityInteraction {
-    pub fn special(
-        func: impl Fn(&mut Commands, Entity) + Send + Sync + 'static,
-    ) -> EntityInteraction {
-        EntityInteraction::Special(Arc::new(func))
+#[derive(Component)]
+struct SpecialInteraction(SpecialInteractionFn);
+type SpecialInteractionFn = Arc<dyn Fn(&mut Commands, Entity) + Send + Sync>;
+
+impl core::fmt::Debug for SpecialInteraction {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("SpecialInteraction").finish()
     }
 }
 
-impl core::fmt::Debug for EntityInteraction {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        match self {
-            EntityInteraction::Text(text) => write!(f, "Text(\"{}\")", text),
-            EntityInteraction::Special(_) => write!(f, "Special(...)"),
-        }
+impl SpecialInteraction {
+    fn new(func: impl Fn(&mut Commands, Entity) + Send + Sync + 'static) -> Self {
+        SpecialInteraction(Arc::new(func))
     }
 }
+
 fn pressing_interact_key(
     key_input: Res<ButtonInput<KeyCode>>,
     settings: Res<Persistent<Settings>>,
@@ -85,9 +83,11 @@ fn pressing_interact_key(
 
 fn play_interactions(
     In(input): In<Option<(EntityInteraction, Entity)>>,
+    special_interactions: Query<&SpecialInteraction, With<EntityInteraction>>,
     mut commands: Commands,
 ) {
     let Some((interaction, entity)) = input else {
+        debug!("Entity Interaction input invalid");
         return;
     };
 
@@ -98,7 +98,13 @@ fn play_interactions(
                 .spawn(interaction_panel())
                 .with_child(interaction_text(text));
         }
-        EntityInteraction::Special(func) => func(&mut commands, entity),
+        EntityInteraction::Special => {
+            let Ok(func) = special_interactions.get(entity) else {
+                warn!("Failed to get special interaction from entity: {}", entity);
+                return;
+            };
+            func.0(&mut commands, entity);
+        }
     }
 }
 
@@ -130,7 +136,6 @@ struct InteractionPanel;
 
 #[derive(Debug, Component)]
 struct InteractionText;
-
 
 fn interaction_panel() -> impl Bundle {
     (

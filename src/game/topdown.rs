@@ -173,6 +173,9 @@ fn fade_from_egg(
                 EasingCurve::new(1.0, 0.0, EaseFunction::ExponentialInOut),
             ),
         );
+        fade_in_clip.add_event_fn(1.0, |commands, entity, _time, _weight| {
+            commands.entity(entity).despawn();
+        });
         fade_in_clip
     }));
     let animation_graph_handle = animation_graphs.add(animation_graph);
