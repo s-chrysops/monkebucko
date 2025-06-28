@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bevy::{color::palettes::css::*, prelude::*};
 use bevy_persistent::Persistent;
 use bevy_text_animation::*;
@@ -34,7 +36,6 @@ pub fn game_plugin(app: &mut App) {
     app.add_plugins((egg_plugin, topdown_plugin))
         .init_state::<GameState>()
         .init_state::<MovementState>()
-        .init_state::<InteractionState>()
         .add_systems(OnEnter(AppState::Game), game_setup)
         .add_systems(Update, update_fade)
         .add_systems(
@@ -45,7 +46,7 @@ pub fn game_plugin(app: &mut App) {
         )
         .add_systems(
             Update,
-            on_text_interaction.run_if(in_state(InteractionState::OnTextInteraction)),
+            on_text_interaction.run_if(any_with_component::<InteractionText>),
         );
 }
 
@@ -53,22 +54,33 @@ fn game_setup(mut commands: Commands) {
     commands.set_state(GameState::Egg);
 }
 
-#[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
-enum InteractionState {
-    #[default]
-    None,
-    OnTextInteraction,
-    Special,
-}
-
 // Current entity with [EntityInteraction] in focus
 #[derive(Debug, Component)]
 struct InteractTarget(Option<Entity>);
 
-#[derive(Clone, Copy, Debug, Component)]
+type SpecialInteractionFn = Arc<dyn Fn(&mut Commands, Entity) + Send + Sync>;
+
+#[derive(Clone, Component)]
 enum EntityInteraction {
     Text(&'static str),
-    Special,
+    Special(SpecialInteractionFn),
+}
+
+impl EntityInteraction {
+    pub fn special(
+        func: impl Fn(&mut Commands, Entity) + Send + Sync + 'static,
+    ) -> EntityInteraction {
+        EntityInteraction::Special(Arc::new(func))
+    }
+}
+
+impl core::fmt::Debug for EntityInteraction {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            EntityInteraction::Text(text) => write!(f, "Text(\"{}\")", text),
+            EntityInteraction::Special(_) => write!(f, "Special(...)"),
+        }
+    }
 }
 
 #[derive(Debug, Component)]
@@ -119,14 +131,21 @@ fn play_interactions(
     q_interactables: Query<(&EntityInteraction, &Transform)>,
 ) {
     // info!("Interacting");
-    // Guards InteractTarget(None)
     let (InteractTarget(Some(target_entity)), player_transform) = player.into_inner() else {
+        debug!("InteractTarget(None)");
         return;
     };
 
     // info!("Target Entity: {}", target_entity);
 
-    let (entity_interaction, target_transform) = q_interactables.get_inner(*target_entity).unwrap();
+    let Ok((entity_interaction, target_transform)) = q_interactables.get_inner(*target_entity)
+    else {
+        warn!(
+            "Unable to find interaction target entity: {}",
+            *target_entity
+        );
+        return;
+    };
     // info!("Entity Interaction: {:?}", entity_interaction);
 
     if player_transform
@@ -137,16 +156,14 @@ fn play_interactions(
         return;
     }
 
+    commands.set_state(MovementState::Disabled);
     match entity_interaction {
         EntityInteraction::Text(text) => {
-            commands.set_state(MovementState::Disabled);
-            commands.set_state(InteractionState::OnTextInteraction);
-            commands.spawn(interaction_panel(text));
+            commands
+                .spawn(interaction_panel())
+                .with_child(interaction_text(text));
         }
-        EntityInteraction::Special => {
-            commands.set_state(MovementState::Disabled);
-            commands.set_state(InteractionState::Special)
-        }
+        EntityInteraction::Special(func) => func(&mut commands, *target_entity),
     }
 }
 
@@ -171,10 +188,9 @@ fn on_text_interaction(
 
     commands.entity(interaction_panel.into_inner()).despawn();
     commands.set_state(MovementState::Enabled);
-    commands.set_state(InteractionState::None);
 }
 
-fn interaction_panel(text: &'static str) -> impl Bundle {
+fn interaction_panel() -> impl Bundle {
     (
         InteractionPanel,
         Node {
@@ -188,16 +204,19 @@ fn interaction_panel(text: &'static str) -> impl Bundle {
             ..default()
         },
         BackgroundColor(Color::linear_rgba(0.0, 0.0, 0.0, 0.75)),
-        children![(
-            InteractionText,
-            Text::new(""),
-            TextFont {
-                font_size: 16.0,
-                ..default()
-            },
-            TextColor(WHITE.into()),
-            TextSimpleAnimator::new(text, 16.0),
-        )],
+    )
+}
+
+fn interaction_text(text: &'static str) -> impl Bundle {
+    (
+        InteractionText,
+        Text::new(""),
+        TextFont {
+            font_size: 16.0,
+            ..default()
+        },
+        TextColor(WHITE.into()),
+        TextSimpleAnimator::new(text, 16.0),
     )
 }
 

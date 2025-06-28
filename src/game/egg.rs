@@ -29,6 +29,14 @@ const PICKABLE: Pickable = Pickable {
 #[derive(Debug, Component)]
 struct OnEggScene;
 
+#[derive(SubStates, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[source(GameState = GameState::Egg)]
+enum EggState {
+    #[default]
+    None,
+    Special,
+}
+
 #[derive(Debug, Component, Deref, DerefMut)]
 struct CameraSensitivity(Vec2);
 
@@ -52,8 +60,8 @@ pub fn egg_plugin(app: &mut App) {
             spawn_player,
             spawn_world,
             spawn_stars,
-            cursor_grab,
             spawn_egg_special_elements,
+            cursor_grab,
         ),
     )
     .add_systems(
@@ -75,12 +83,13 @@ pub fn egg_plugin(app: &mut App) {
         Update,
         (egg_special, update_crack)
             .run_if(in_state(GameState::Egg))
-            .run_if(in_state(InteractionState::Special)),
+            .run_if(in_state(EggState::Special)),
     )
     .add_systems(
-        OnEnter(InteractionState::Special),
+        OnEnter(EggState::Special),
         setup_camera_movements.run_if(in_state(GameState::Egg)),
     )
+    .init_state::<EggState>()
     .init_resource::<StarResources>();
 }
 
@@ -325,7 +334,9 @@ fn spawn_world(
             MeshMaterial3d(crack_materials[0].clone_weak()),
             crack_materials,
             PICKABLE,
-            EntityInteraction::Special,
+            EntityInteraction::special(move |commands: &mut Commands, _entity: Entity| {
+                commands.set_state(EggState::Special);
+            }),
         ))
         .observe(over_interactables)
         .observe(out_interactables);
@@ -1370,19 +1381,19 @@ fn update_crack(
     e_reader.clear();
 
     let new_damage_level = damage_level(crack_health.0);
-    
+
     if new_damage_level != old_damage_level {
         current_material.0 = crack_materials[new_damage_level].clone_weak();
     }
 
     fn damage_level(health: u8) -> usize {
         match health {
-        255 => 0,
-        192..255 => 1,
-        128..192 => 2,
-        64..128 => 3,
-        1..64 => 4,
-        0 => 5,
+            255 => 0,
+            192..255 => 1,
+            128..192 => 2,
+            64..128 => 3,
+            1..64 => 4,
+            0 => 5,
         }
     }
 }
