@@ -40,12 +40,6 @@ pub fn game_plugin(app: &mut App) {
         .add_systems(Update, update_fade)
         .add_systems(
             Update,
-            play_interactions
-                .run_if(pressing_interact_key)
-                .run_if(in_state(MovementState::Enabled)),
-        )
-        .add_systems(
-            Update,
             on_text_interaction.run_if(any_with_component::<InteractionText>),
         );
 }
@@ -82,41 +76,6 @@ impl core::fmt::Debug for EntityInteraction {
         }
     }
 }
-
-#[derive(Debug, Component)]
-struct InteractionPanel;
-
-#[derive(Debug, Component)]
-struct InteractionText;
-
-const INTERACTION_RANGE: f32 = 1.0;
-
-fn over_interactables(
-    over: Trigger<Pointer<Over>>,
-    q_interactables: Query<Entity, With<EntityInteraction>>,
-    player: Single<&mut InteractTarget, With<Player>>,
-) {
-    // info!("Hovering");
-    if let Ok(target_entity) = q_interactables.get(over.target()) {
-        // info!("Over Target: {}", target_entity);
-        *player.into_inner() = InteractTarget(Some(target_entity));
-    }
-    // let depth = over.event().event.hit.depth;
-    // info!(depth);
-}
-
-fn out_interactables(
-    out: Trigger<Pointer<Out>>,
-    q_interactables: Query<Entity, With<EntityInteraction>>,
-    player: Single<&mut InteractTarget, With<Player>>,
-) {
-    // info!("Not Hovering");
-    if let Ok(_target_entity) = q_interactables.get(out.target()) {
-        // info!("Out Target: {}", target_entity);
-        *player.into_inner() = InteractTarget(None);
-    }
-}
-
 fn pressing_interact_key(
     key_input: Res<ButtonInput<KeyCode>>,
     settings: Res<Persistent<Settings>>,
@@ -124,46 +83,22 @@ fn pressing_interact_key(
     key_input.just_pressed(settings.interact)
 }
 
-// Runs on Interact Key press
 fn play_interactions(
+    In(input): In<Option<(EntityInteraction, Entity)>>,
     mut commands: Commands,
-    player: Single<(&InteractTarget, &Transform), With<Player>>,
-    q_interactables: Query<(&EntityInteraction, &Transform)>,
 ) {
-    // info!("Interacting");
-    let (InteractTarget(Some(target_entity)), player_transform) = player.into_inner() else {
-        debug!("InteractTarget(None)");
+    let Some((interaction, entity)) = input else {
         return;
     };
-
-    // info!("Target Entity: {}", target_entity);
-
-    let Ok((entity_interaction, target_transform)) = q_interactables.get_inner(*target_entity)
-    else {
-        warn!(
-            "Unable to find interaction target entity: {}",
-            *target_entity
-        );
-        return;
-    };
-    // info!("Entity Interaction: {:?}", entity_interaction);
-
-    if player_transform
-        .translation
-        .distance(target_transform.translation)
-        > INTERACTION_RANGE
-    {
-        return;
-    }
 
     commands.set_state(MovementState::Disabled);
-    match entity_interaction {
+    match interaction {
         EntityInteraction::Text(text) => {
             commands
                 .spawn(interaction_panel())
                 .with_child(interaction_text(text));
         }
-        EntityInteraction::Special(func) => func(&mut commands, *target_entity),
+        EntityInteraction::Special(func) => func(&mut commands, entity),
     }
 }
 
@@ -189,6 +124,13 @@ fn on_text_interaction(
     commands.entity(interaction_panel.into_inner()).despawn();
     commands.set_state(MovementState::Enabled);
 }
+
+#[derive(Debug, Component)]
+struct InteractionPanel;
+
+#[derive(Debug, Component)]
+struct InteractionText;
+
 
 fn interaction_panel() -> impl Bundle {
     (

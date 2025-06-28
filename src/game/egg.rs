@@ -81,6 +81,14 @@ pub fn egg_plugin(app: &mut App) {
     )
     .add_systems(
         Update,
+        get_egg_interactions
+            .pipe(play_interactions)
+            .run_if(in_state(GameState::Egg))
+            .run_if(in_state(MovementState::Enabled))
+            .run_if(pressing_interact_key),
+    )
+    .add_systems(
+        Update,
         (egg_special, update_crack)
             .run_if(in_state(GameState::Egg))
             .run_if(in_state(EggState::Special)),
@@ -1396,6 +1404,67 @@ fn update_crack(
             0 => 5,
         }
     }
+}
+
+fn over_interactables(
+    over: Trigger<Pointer<Over>>,
+    q_interactables: Query<Entity, With<EntityInteraction>>,
+    player: Single<&mut InteractTarget, With<Player>>,
+) {
+    // info!("Hovering");
+    if let Ok(target_entity) = q_interactables.get(over.target()) {
+        // info!("Over Target: {}", target_entity);
+        *player.into_inner() = InteractTarget(Some(target_entity));
+    }
+    // let depth = over.event().event.hit.depth;
+    // info!(depth);
+}
+
+fn out_interactables(
+    out: Trigger<Pointer<Out>>,
+    q_interactables: Query<Entity, With<EntityInteraction>>,
+    player: Single<&mut InteractTarget, With<Player>>,
+) {
+    // info!("Not Hovering");
+    if let Ok(_target_entity) = q_interactables.get(out.target()) {
+        // info!("Out Target: {}", target_entity);
+        *player.into_inner() = InteractTarget(None);
+    }
+}
+
+const INTERACTION_RANGE: f32 = 1.0;
+
+fn get_egg_interactions(
+    player: Single<(&InteractTarget, &Transform), With<Player>>,
+    q_interactables: Query<(&EntityInteraction, &Transform)>,
+) -> Option<(EntityInteraction, Entity)> {
+    // info!("Interacting");
+    let (InteractTarget(Some(target_entity)), player_transform) = player.into_inner() else {
+        debug!("InteractTarget(None)");
+        return None;
+    };
+
+    // info!("Target Entity: {}", target_entity);
+
+    let Ok((entity_interaction, target_transform)) = q_interactables.get_inner(*target_entity)
+    else {
+        warn!(
+            "Unable to find interaction target entity: {}",
+            *target_entity
+        );
+        return None;
+    };
+    // info!("Entity Interaction: {:?}", entity_interaction);
+
+    if player_transform
+        .translation
+        .distance(target_transform.translation)
+        > INTERACTION_RANGE
+    {
+        return None;
+    }
+
+    Some((entity_interaction.clone(), *target_entity))
 }
 
 fn cursor_grab(q_windows: Single<&mut Window, With<PrimaryWindow>>) {
