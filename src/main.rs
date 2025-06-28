@@ -15,8 +15,6 @@ use bevy_rand::{plugin::EntropyPlugin, prelude::WyRand};
 use bevy_text_animation::TextAnimatorPlugin;
 use serde::{Deserialize, Serialize};
 
-mod auto_scaling;
-
 use animation::sprite_animations_plugin;
 use game::game_plugin;
 use menu::menu_plugin;
@@ -28,6 +26,8 @@ mod animation;
 mod game;
 mod menu;
 mod splash;
+
+mod auto_scaling;
 
 const WINDOW_WIDTH: u32 = 1280;
 const WINDOW_HEIGHT: u32 = 720;
@@ -45,6 +45,7 @@ struct Settings {
     left:     KeyCode,
     right:    KeyCode,
     jump:     KeyCode,
+    swap:     KeyCode,
     interact: KeyCode,
 
     sound_vol: u32,
@@ -59,6 +60,7 @@ impl Default for Settings {
             left:     KeyCode::KeyA,
             right:    KeyCode::KeyD,
             jump:     KeyCode::Space,
+            swap:     KeyCode::KeyQ,
             interact: KeyCode::KeyE,
 
             sound_vol: 10,
@@ -124,6 +126,7 @@ fn main() {
 }
 
 fn setup(mut commands: Commands) {
+    use bevy::render::camera::ScalingMode;
     commands.spawn((
         Camera2d,
         Camera {
@@ -136,6 +139,14 @@ fn setup(mut commands: Commands) {
             ..default()
         },
         auto_scaling::AspectRatio(16.0 / 9.0),
+        Projection::from(OrthographicProjection {
+            near: -1000.0,
+            scaling_mode: ScalingMode::Fixed {
+                width:  WINDOW_WIDTH as f32,
+                height: WINDOW_HEIGHT as f32,
+            },
+            ..OrthographicProjection::default_3d()
+        }),
         // Msaa::Off,
         RENDER_LAYER_OVERLAY,
     ));

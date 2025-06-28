@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use bevy::prelude::*;
 
 #[derive(Clone, Copy, Debug, Event, Deref, PartialEq)]
@@ -11,6 +9,7 @@ pub struct SpriteAnimation {
     first_index: usize,
     last_index:  usize,
     frame_timer: Timer,
+    delay:       f32,
     looping:     bool,
 }
 
@@ -19,13 +18,19 @@ impl SpriteAnimation {
         SpriteAnimation {
             first_index: first,
             last_index:  last,
-            frame_timer: Self::timer_from_fps(fps),
+            frame_timer: Timer::from_seconds(1.0 / (fps as f32), TimerMode::Once),
+            delay:       0.0, // because I need it and don't want another to add another Timer :p
             looping:     false,
         }
     }
 
-    pub fn _looping(mut self) -> Self {
+    pub fn looping(mut self) -> Self {
         self.looping = true;
+        self
+    }
+
+    pub fn with_delay(mut self, secs: f32) -> Self {
+        self.delay = secs;
         self
     }
 
@@ -35,13 +40,12 @@ impl SpriteAnimation {
         SpriteAnimation {
             first_index: index,
             last_index:  index,
-            frame_timer: Self::timer_from_fps(240),
+            // Sadly this might cause inconsistencies with systems running
+            // at over 1000 frames per second. Apologies to those users.
+            frame_timer: Timer::from_seconds(0.001, TimerMode::Once),
+            delay:       0.0,
             looping:     false,
         }
-    }
-
-    fn timer_from_fps(fps: u8) -> Timer {
-        Timer::new(Duration::from_secs_f32(1.0 / (fps as f32)), TimerMode::Once)
     }
 }
 
@@ -60,7 +64,12 @@ fn play_animations(
     query
         .iter_mut()
         .for_each(|(entity, mut animation, mut sprite)| {
-            if animation.frame_timer.tick(time.delta()).just_finished() {
+            if animation.delay > 0.0 {
+                animation.delay -= time.delta_secs();
+            }
+
+            // delay check will short-circuit the if statement and not tick the frame_timer... I hope
+            if animation.delay <= 0.0 && animation.frame_timer.tick(time.delta()).just_finished() {
                 let atlas = sprite
                     .texture_atlas
                     .as_mut()
@@ -76,11 +85,10 @@ fn play_animations(
                     if animation.looping {
                         atlas.index = animation.first_index;
                         animation.frame_timer.reset();
-                    } else {
-                        let event = SpriteAnimationFinished(entity);
-                        e_writer.write(event);
-                        commands.trigger_targets(event, entity);
                     }
+                    let event = SpriteAnimationFinished(entity);
+                    e_writer.write(event);
+                    commands.trigger_targets(event, entity);
                 } else if atlas.index < animation.last_index {
                     atlas.index += 1;
                     animation.frame_timer.reset();

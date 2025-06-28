@@ -1,6 +1,10 @@
 #![allow(clippy::type_complexity)]
 use avian2d::prelude::*;
-use bevy::{prelude::*, time::Stopwatch};
+use bevy::{
+    animation::{AnimationTarget, animated_field},
+    prelude::*,
+    time::Stopwatch,
+};
 use bevy_ecs_tiled::prelude::*;
 
 use super::*;
@@ -10,30 +14,43 @@ use crate::{RENDER_LAYER_WORLD, WINDOW_HEIGHT, WINDOW_WIDTH, animation::*};
 struct OnTopDown;
 
 pub fn topdown_plugin(app: &mut App) {
-    app.add_systems(OnEnter(GameState::TopDown), (spawn_player, topdown_setup))
-        .add_systems(
-            Update,
-            set_player_hop
-                .run_if(in_state(GameState::TopDown))
-                .run_if(in_state(MovementState::Enabled)),
-        )
-        .add_systems(
-            Update,
-            (camera_system, update_player_z).run_if(in_state(GameState::TopDown)),
-        )
-        .add_observer(setup_current_map)
-        .register_type::<HopState>()
-        .register_type::<MoveInput>()
-        .register_type::<Warp>()
-        .init_resource::<CurrentMap>()
-        .init_resource::<TopdownMapHandles>();
+    app.add_systems(
+        OnTransition {
+            exited:  GameState::Egg,
+            entered: GameState::TopDown,
+        },
+        fade_from_egg,
+    )
+    .add_systems(OnEnter(GameState::TopDown), (spawn_player, topdown_setup))
+    .add_systems(
+        Update,
+        set_player_hop
+            .run_if(in_state(GameState::TopDown))
+            .run_if(in_state(MovementState::Enabled)),
+    )
+    .add_systems(
+        Update,
+        (camera_system, update_player_z).run_if(in_state(GameState::TopDown)),
+    )
+    .add_systems(
+        Update,
+        wait_for_fade.run_if(|current_map: Res<CurrentMap>| current_map.loading),
+    )
+    .add_observer(setup_current_map)
+    .register_type::<HopState>()
+    .register_type::<MoveInput>()
+    .register_type::<Warp>()
+    .init_resource::<CurrentMap>()
+    .init_resource::<LastPlayerLocation>()
+    .init_resource::<TopdownMapHandles>();
 }
 
 fn topdown_setup(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
+    // asset_server: Res<AssetServer>,
+    last_player_location: Res<LastPlayerLocation>,
     topdown_maps: Res<TopdownMapHandles>,
-    current_map: ResMut<CurrentMap>,
+    current_map: Res<CurrentMap>,
 ) {
     use crate::auto_scaling::AspectRatio;
     use bevy::render::camera::ScalingMode;
@@ -46,7 +63,7 @@ fn topdown_setup(
             clear_color: ClearColorConfig::Custom(Color::BLACK),
             ..default()
         },
-        Transform::from_scale(Vec3::splat(0.5)),
+        Transform::from_translation(last_player_location.0).with_scale(Vec3::splat(0.5)),
         AspectRatio(16.0 / 9.0),
         Projection::from({
             OrthographicProjection {
@@ -61,15 +78,15 @@ fn topdown_setup(
         RENDER_LAYER_WORLD,
     ));
 
-    commands.spawn((
-        OnTopDown,
-        Transform::from_xyz(500.0, 500.0, 0.0),
-        Visibility::default(),
-        Sprite::from_image(asset_server.load("bucko.png")),
-        RigidBody::Static,
-        Collider::circle(32.0),
-        RENDER_LAYER_WORLD,
-    ));
+    // commands.spawn((
+    //     OnTopDown,
+    //     Transform::from_xyz(500.0, 500.0, 0.0),
+    //     Visibility::default(),
+    //     Sprite::from_image(asset_server.load("bucko.png")),
+    //     RigidBody::Static,
+    //     Collider::circle(32.0),
+    //     RENDER_LAYER_WORLD,
+    // ));
 
     commands
         .spawn(TiledMapHandle(topdown_maps[current_map.index].clone_weak()))
@@ -78,8 +95,9 @@ fn topdown_setup(
 
 #[derive(Debug, Default, Resource)]
 struct CurrentMap {
-    index: TopdownMapIndex,
-    rect:  Rect,
+    loading: bool,
+    index:   TopdownMapIndex,
+    rect:    Rect,
 }
 
 const Z_BETWEEN_LAYERS: f32 = 100.0;
@@ -99,6 +117,7 @@ fn setup_current_map(
     // let tilemap_size = tiled_map.tilemap_size;
     // info!("Map Size = x: {}, y: {}", tilemap_size.x, tilemap_size.y);
     current_map.rect = tiled_map.rect;
+    current_map.loading = false;
 
     let Ok(map_storage) = q_tiled_maps.get(trigger.entity) else {
         warn!("Failed to load Tiled map storage");
@@ -136,6 +155,47 @@ fn setup_collider_bodies(
     }
 
     commands.entity(trigger.entity).insert(RigidBody::Static);
+}
+
+fn fade_from_egg(
+    mut commands: Commands,
+    fade_white: Single<(Entity, &AnimationTarget), (With<Fade>, Without<AnimationPlayer>)>,
+    mut animation_graphs: ResMut<Assets<AnimationGraph>>,
+    mut animation_clips: ResMut<Assets<AnimationClip>>,
+) {
+    let (fade_entity, fade_target) = fade_white.into_inner();
+    let (animation_graph, animation_node) = AnimationGraph::from_clip(animation_clips.add({
+        let mut fade_in_clip = AnimationClip::default();
+        fade_in_clip.add_curve_to_target(
+            fade_target.id,
+            AnimatableCurve::new(
+                animated_field!(Opacity::0),
+                EasingCurve::new(1.0, 0.0, EaseFunction::ExponentialInOut),
+            ),
+        );
+        fade_in_clip
+    }));
+    let animation_graph_handle = animation_graphs.add(animation_graph);
+    let mut animation_player = AnimationPlayer::default();
+    animation_player.play(animation_node);
+
+    commands.entity(fade_entity).insert((
+        animation_player,
+        AnimationGraphHandle(animation_graph_handle),
+        AnimationTarget {
+            id:     fade_target.id,
+            player: fade_entity,
+        },
+    ));
+}
+
+fn wait_for_fade(
+    q_fade: Query<&mut AnimationPlayer, With<Fade>>,
+    mut movement_state: ResMut<NextState<MovementState>>,
+) {
+    if q_fade.iter().all(|player| player.all_finished()) {
+        movement_state.set(MovementState::Enabled);
+    }
 }
 
 const TOTAL_TOPDOWN_MAPS: usize = 7;
@@ -217,6 +277,7 @@ fn warp_player(
         return;
     }
     current_map.index = warp.target_map;
+    current_map.loading = true;
 
     let Vec3 { x, y, z } = player_transform.translation;
     info!("Player at ({}, {}, {})", x, y, z);
@@ -240,9 +301,20 @@ fn warp_player(
         .observe(setup_collider_bodies);
 }
 
+#[derive(Debug, Deref, DerefMut, Resource)]
+struct LastPlayerLocation(Vec3);
+
+impl Default for LastPlayerLocation {
+    fn default() -> Self {
+        const FIRST_SPAWN: Vec3 = vec3(832.0, 1024.0, 0.0);
+        LastPlayerLocation(FIRST_SPAWN)
+    }
+}
+
 fn spawn_player(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
+    last_location: Res<LastPlayerLocation>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
     let player_sprites: Handle<Image> = asset_server.load("sprites/bucko_bounce.png");
@@ -255,7 +327,7 @@ fn spawn_player(
             Player,
             InteractTarget(None),
             //
-            Transform::default(),
+            Transform::from_translation(last_location.0),
             Visibility::default(),
             //
             Sprite::from_atlas_image(
@@ -451,6 +523,7 @@ fn camera_system(
     const NEW_DIRECTION_DELAY: f32 = 1.0;
 
     let (player_transform, move_input) = player.into_inner();
+
     let view_size = WINDOW_SIZE * camera_transform.scale.xy();
 
     if *target_direction != move_input.input_vector

@@ -249,6 +249,7 @@ fn settings_menu_setup(
         left: _left,
         right: _right,
         jump: _jump,
+        swap: _swap,
         interact: _interact,
 
         sound_vol,

@@ -36,6 +36,7 @@ pub fn game_plugin(app: &mut App) {
         .init_state::<MovementState>()
         .init_state::<InteractionState>()
         .add_systems(OnEnter(AppState::Game), game_setup)
+        .add_systems(Update, update_fade)
         .add_systems(
             Update,
             play_interactions
@@ -198,4 +199,18 @@ fn interaction_panel(text: &'static str) -> impl Bundle {
             TextSimpleAnimator::new(text, 16.0),
         )],
     )
+}
+
+#[derive(Debug, Component)]
+struct Fade;
+
+#[derive(Clone, Component, Debug, Deref, DerefMut, Reflect)]
+#[reflect(Component)]
+struct Opacity(f32);
+
+#[allow(clippy::type_complexity)]
+fn update_fade(mut q_fade: Query<(&mut Sprite, &Opacity), (With<Fade>, Changed<Opacity>)>) {
+    q_fade.iter_mut().for_each(|(mut sprite, Opacity(alpha))| {
+        sprite.color = sprite.color.with_alpha(*alpha);
+    });
 }
