@@ -6,6 +6,7 @@ use bevy::{
     time::Stopwatch,
 };
 use bevy_ecs_tiled::prelude::*;
+use bevy_ecs_tilemap::tiles::TileStorage;
 
 use super::*;
 use crate::{RENDER_LAYER_WORLD, WINDOW_HEIGHT, WINDOW_WIDTH, animation::*};
@@ -30,19 +31,94 @@ pub fn topdown_plugin(app: &mut App) {
     )
     .add_systems(
         Update,
-        (camera_system, update_player_z).run_if(in_state(GameState::TopDown)),
+        (camera_system, update_player_submerged, update_player_z)
+            .run_if(in_state(GameState::TopDown)),
     )
     .add_systems(
         Update,
         wait_for_fade.run_if(|current_map: Res<CurrentMap>| current_map.loading),
     )
+    .add_systems(
+        Update,
+        debug_current_tile.run_if(
+            |key_input: Res<ButtonInput<KeyCode>>, settings: Res<Persistent<Settings>>| {
+                key_input.just_pressed(settings.jump)
+            },
+        ),
+    )
     .add_observer(setup_current_map)
     .register_type::<HopState>()
     .register_type::<MoveInput>()
+    .register_type::<WaterTile>()
     .register_type::<Warp>()
     .init_resource::<CurrentMap>()
     .init_resource::<LastPlayerLocation>()
     .init_resource::<TopdownMapHandles>();
+}
+
+fn get_tile_pos(position: Vec3) -> TilePos {
+    static TILE_SIZE: f32 = 32.0;
+    static OFFSET: f32 = 16.0;
+    TilePos::from(
+        ((position.truncate() - OFFSET) / TILE_SIZE)
+            .floor()
+            .as_uvec2(),
+    )
+}
+
+#[derive(Debug, Component, Reflect)]
+#[reflect(Component)]
+struct WaterTile;
+
+fn update_player_submerged(
+    player: Single<&Transform, (With<Player>, Changed<Transform>)>,
+    current_map: Res<CurrentMap>,
+    q_tiled_layers: Query<&TileStorage, With<TiledMapTileLayerForTileset>>,
+    q_water_tiles: Query<&WaterTile, With<TiledMapTile>>,
+) {
+    let Some(water_layer_entity) = current_map.water_layer else {
+        debug_once!("Current map has no water layer");
+        return;
+    };
+
+    let Ok(water_tile_storage) = q_tiled_layers.get(water_layer_entity) else {
+        warn_once!("Failed to get tile storage for current map's water layer");
+        return;
+    };
+
+    let player_tile_pos = get_tile_pos(player.translation);
+    if let Some(current_tile) = water_tile_storage.get(&player_tile_pos) {
+        if q_water_tiles.contains(current_tile) {
+            info_once!("I am under da watah");
+        }
+    }
+}
+
+fn debug_current_tile(
+    mut commands: Commands,
+    player: Single<&Transform, With<Player>>,
+    q_tiled_layers: Query<(&Name, &TileStorage), With<TiledMapTileLayerForTileset>>,
+) {
+    if let Some((_name, tile_storage)) = q_tiled_layers
+        .iter()
+        .find(|(name, _tile_storage)| name.as_str() == "TiledMapTileLayerForTileset(water, water)")
+    {
+        info!("Found water layer");
+
+        let player_tile_pos = TilePos::from(
+            ((player.translation.truncate() - 16.0) / 32.0)
+                .floor()
+                .as_uvec2(),
+        );
+        info!(
+            "Player Tile Pos: {}, {}",
+            player_tile_pos.x, player_tile_pos.y
+        );
+
+        if let Some(current_tile) = tile_storage.get(&player_tile_pos) {
+            commands.entity(current_tile).log_components();
+        };
+    };
 }
 
 fn topdown_setup(
@@ -96,16 +172,21 @@ fn topdown_setup(
 #[derive(Debug, Default, Resource)]
 struct CurrentMap {
     loading: bool,
-    index:   TopdownMapIndex,
-    rect:    Rect,
+
+    index: TopdownMapIndex,
+    rect:  Rect,
+
+    entity:      Option<Entity>,
+    water_layer: Option<Entity>,
 }
 
 const Z_BETWEEN_LAYERS: f32 = 100.0;
 
 fn setup_current_map(
     trigger: Trigger<TiledMapCreated>,
-    q_tiled_maps: Query<&mut TiledMapStorage, With<TiledMapMarker>>,
+    q_tiled_maps: Query<(Entity, &mut TiledMapStorage), With<TiledMapMarker>>,
     mut q_tiled_objects: Query<&mut Transform, With<TiledMapObject>>,
+    q_tiled_layers: Query<(Entity, &Name), With<TiledMapTileLayerForTileset>>,
     a_tiled_maps: Res<Assets<TiledMap>>,
     mut current_map: ResMut<CurrentMap>,
 ) {
@@ -119,16 +200,25 @@ fn setup_current_map(
     current_map.rect = tiled_map.rect;
     current_map.loading = false;
 
-    let Ok(map_storage) = q_tiled_maps.get(trigger.entity) else {
+    let Ok((map_entity, map_storage)) = q_tiled_maps.get(trigger.entity) else {
         warn!("Failed to load Tiled map storage");
         return;
     };
+
+    current_map.entity = Some(map_entity);
 
     // Objects higher up on the map will be given a greater negative z-offset
     map_storage.objects.iter().for_each(|(_tiled_id, entity)| {
         if let Ok(mut transform) = q_tiled_objects.get_mut(*entity) {
             let offset_y = transform.translation.y - tiled_map.rect.min.y;
             transform.translation.z -= offset_y / tiled_map.rect.height() * Z_BETWEEN_LAYERS;
+        }
+    });
+
+    current_map.water_layer = q_tiled_layers.iter().find_map(|(entity, name)| {
+        match name.as_str() == "TiledMapTileLayerForTileset(water, water)" {
+            true => Some(entity),
+            false => None,
         }
     });
 }
