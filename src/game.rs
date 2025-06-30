@@ -36,7 +36,9 @@ pub fn game_plugin(app: &mut App) {
     app.add_plugins((egg_plugin, topdown_plugin))
         .init_state::<GameState>()
         .init_state::<MovementState>()
+        .init_resource::<UserInput>()
         .add_systems(OnEnter(AppState::Game), game_setup)
+        .add_systems(PreUpdate, get_user_input)
         .add_systems(Update, update_fade)
         .add_systems(
             Update,
@@ -46,6 +48,52 @@ pub fn game_plugin(app: &mut App) {
 
 fn game_setup(mut commands: Commands) {
     commands.set_state(GameState::Egg);
+}
+
+#[derive(Debug, Resource)]
+struct UserInput {
+    raw_vector:           Vec2,
+    last_valid_direction: Dir2,
+}
+
+impl Default for UserInput {
+    fn default() -> Self {
+        UserInput {
+            raw_vector:           Vec2::ZERO,
+            last_valid_direction: Dir2::EAST,
+        }
+    }
+}
+
+impl UserInput {
+    pub fn moving(&self) -> bool {
+        self.raw_vector != Vec2::ZERO
+    }
+}
+
+fn get_user_input(
+    key_input: Res<ButtonInput<KeyCode>>,
+    settings: Res<Persistent<Settings>>,
+    mut user_input: ResMut<UserInput>,
+) {
+    let mut raw_vector = Vec2::ZERO;
+    if key_input.pressed(settings.up) {
+        raw_vector += Vec2::Y;
+    }
+    if key_input.pressed(settings.down) {
+        raw_vector -= Vec2::Y;
+    }
+    if key_input.pressed(settings.right) {
+        raw_vector += Vec2::X;
+    }
+    if key_input.pressed(settings.left) {
+        raw_vector -= Vec2::X;
+    }
+    user_input.raw_vector = raw_vector;
+
+    if let Ok(new_direction) = Dir2::new(raw_vector) {
+        user_input.last_valid_direction = new_direction;
+    }
 }
 
 // Current entity with [EntityInteraction] in focus

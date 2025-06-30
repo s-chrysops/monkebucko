@@ -139,6 +139,7 @@ const PLAYER_STEP: f32 = 0.04;
 fn move_player(
     settings: Res<Persistent<Settings>>,
     accumulated_mouse_motion: Res<AccumulatedMouseMotion>,
+    user_input: Res<UserInput>,
     key_input: Res<ButtonInput<KeyCode>>,
     player: Single<(&mut Transform, &CameraSensitivity), With<Player>>,
 ) {
@@ -171,33 +172,22 @@ fn move_player(
         transform.rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll);
     }
 
-    // Forward movement from player's horizontal direction instead of forward() directly which allows for vertical movement
-    // This probably looks terrible to someone who knows what they're doing
-    // let Vec2 {x: yaw_x, y: yaw_y} = Vec2::from_angle(yaw);
-    let forward = Vec3::new(-ops::sin(yaw), 0.0, -ops::cos(yaw)) * PLAYER_STEP;
+    if user_input.moving() {
+        const VECTOR_MAP: Vec2 = vec2(0.5 * PLAYER_STEP, -PLAYER_STEP);
 
-    // Camera will never roll so sideways directions will never contain a vertical component
-    let left = transform.left().as_vec3() * PLAYER_STEP * 0.5;
+        let translation = Vec2::from_angle(-yaw)
+            .rotate(user_input.last_valid_direction.as_vec2() * VECTOR_MAP)
+            .extend(0.0)
+            .xzy();
 
-    let mut next_position = transform.translation;
+        let next_position = transform.translation + translation;
 
-    if key_input.pressed(settings.up) {
-        next_position += forward;
+        transform.translation = next_position.clamp(ROOM_BOUNDARY_MIN, ROOM_BOUNDARY_MAX);
     }
-    if key_input.pressed(settings.down) {
-        next_position -= forward;
-    }
-    if key_input.pressed(settings.left) {
-        next_position += left;
-    }
-    if key_input.pressed(settings.right) {
-        next_position -= left;
-    }
+
     if key_input.pressed(settings.jump) {
         info!("JUMP!");
     }
-
-    transform.translation = next_position.clamp(ROOM_BOUNDARY_MIN, ROOM_BOUNDARY_MAX);
 }
 
 #[derive(Debug, Component)]
