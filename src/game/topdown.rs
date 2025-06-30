@@ -48,7 +48,6 @@ pub fn topdown_plugin(app: &mut App) {
     )
     .add_observer(setup_current_map)
     .register_type::<HopState>()
-    .register_type::<MoveInput>()
     .register_type::<WaterTile>()
     .register_type::<Warp>()
     .init_resource::<CurrentMap>()
@@ -430,7 +429,6 @@ fn spawn_player(
                     index:  0,
                 },
             ),
-            MoveInput::default(),
             HopState::Idle,
             SpriteAnimation::set_frame(0),
             //
@@ -486,52 +484,13 @@ impl HopState {
     }
 }
 
-#[derive(Debug, Component, Clone, Copy, Reflect)]
-#[reflect(Component)]
-struct MoveInput {
-    input_vector: Vec2,
-    direction:    Dir2,
-}
-
-impl Default for MoveInput {
-    fn default() -> Self {
-        MoveInput {
-            input_vector: Vec2::ZERO,
-            direction:    Dir2::EAST,
-        }
-    }
-}
-
 fn set_player_hop(
     mut commands: Commands,
-    settings: Res<Persistent<Settings>>,
-    key_input: Res<ButtonInput<KeyCode>>,
-    player: Single<(Entity, &mut MoveInput, &mut HopState), With<Player>>,
+    user_input: Res<UserInput>,
+    player: Single<(Entity, &mut HopState), With<Player>>,
 ) {
-    let mut input_vector = Vec2::ZERO;
-    if key_input.pressed(settings.up) {
-        input_vector += Vec2::Y;
-    }
-    if key_input.pressed(settings.down) {
-        input_vector -= Vec2::Y;
-    }
-    if key_input.pressed(settings.right) {
-        input_vector += Vec2::X;
-    }
-    if key_input.pressed(settings.left) {
-        input_vector -= Vec2::X;
-    }
-
-    let (entity, mut move_input, mut hop_state) = player.into_inner();
-
-    move_input.input_vector = input_vector;
-
-    if *hop_state != HopState::Idle {
-        return;
-    }
-
-    if let Ok(new_direction) = Dir2::new(input_vector) {
-        move_input.direction = new_direction;
+    let (entity, mut hop_state) = player.into_inner();
+    if *hop_state == HopState::Idle && user_input.moving() {
         *hop_state = HopState::Ready;
         commands.trigger_targets(HopUpdate, entity);
     }
@@ -549,26 +508,19 @@ fn cycle_hop_animations(
 
 fn update_player_hop(
     _trigger: Trigger<HopUpdate>,
-    player: Single<
-        (
-            &MoveInput,
-            &HopState,
-            &mut SpriteAnimation,
-            &mut LinearVelocity,
-        ),
-        With<Player>,
-    >,
+    player: Single<(&HopState, &mut SpriteAnimation, &mut LinearVelocity), With<Player>>,
+    user_input: Res<UserInput>,
     mut index_offset: Local<usize>,
 ) {
     const HOP_IMPULSE: f32 = 128.0;
     const SPRITES_PER_ROW: usize = 8;
 
-    let (move_input, hop_state, mut animation, mut velocity) = player.into_inner();
+    let (hop_state, mut animation, mut velocity) = player.into_inner();
 
     match hop_state {
         HopState::Ready => {
             // Map direction to spritesheet y-offset
-            *index_offset = match move_input.direction {
+            *index_offset = match user_input.last_valid_direction {
                 Dir2::NORTH => *index_offset,
                 Dir2::SOUTH => *index_offset,
                 Dir2::EAST => 0,
@@ -585,7 +537,7 @@ fn update_player_hop(
             *animation = SpriteAnimation::new(1 + *index_offset, 2 + *index_offset, 12);
         }
         HopState::Airborne => {
-            *velocity = LinearVelocity(move_input.direction * HOP_IMPULSE);
+            *velocity = LinearVelocity(user_input.last_valid_direction * HOP_IMPULSE);
             *animation = SpriteAnimation::new(3 + *index_offset, 5 + *index_offset, 12);
         }
         HopState::Landing => {
@@ -600,7 +552,8 @@ fn update_player_hop(
 
 fn camera_system(
     mut camera_transform: Single<&mut Transform, With<WorldCamera>>,
-    player: Single<(&Transform, &MoveInput), (With<Player>, Without<WorldCamera>)>,
+    player: Single<&Transform, (With<Player>, Without<WorldCamera>)>,
+    user_input: Res<UserInput>,
     current_map: Res<CurrentMap>,
     mut stopwatch: Local<Stopwatch>,
     mut target_direction: Local<Vec2>,
@@ -615,19 +568,17 @@ fn camera_system(
     const SMOOTH: f32 = 0.01;
     const NEW_DIRECTION_DELAY: f32 = 1.0;
 
-    let (player_transform, move_input) = player.into_inner();
-
     let view_size = WINDOW_SIZE * camera_transform.scale.xy();
 
-    if *target_direction != move_input.input_vector
+    if *target_direction != user_input.raw_vector
         && stopwatch.tick(time.delta()).elapsed_secs() > NEW_DIRECTION_DELAY
     {
         stopwatch.reset();
-        *target_direction = move_input.input_vector;
+        *target_direction = user_input.raw_vector;
     }
 
     let camera_offset = (view_size * LOOKAHEAD * *target_direction).extend(0.0);
-    let camera_target = player_transform.translation + camera_offset;
+    let camera_target = player.translation + camera_offset;
 
     // Bounds camera from rendering the void outside the current map
     let camera_min = (current_map.rect.min + (view_size / 2.0) - HALF_TILE_SIZE).extend(f32::MIN);
