@@ -104,10 +104,10 @@ fn main() {
         // PhysicsDebugPlugin::default(),
         // DebugPickingPlugin,
     ))
-    // .add_plugins(bevy_inspector_egui::bevy_egui::EguiPlugin {
-    //     enable_multipass_for_primary_context: true,
-    // })
-    // .add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new())
+    .add_plugins(bevy_inspector_egui::bevy_egui::EguiPlugin {
+        enable_multipass_for_primary_context: true,
+    })
+    .add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new())
     .add_plugins((
         game_plugin,
         menu_plugin,

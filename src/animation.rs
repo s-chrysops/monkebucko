@@ -11,6 +11,7 @@ pub struct SpriteAnimation {
     frame_timer: Timer,
     delay:       f32,
     looping:     bool,
+    started:     bool,
 }
 
 impl SpriteAnimation {
@@ -21,6 +22,7 @@ impl SpriteAnimation {
             frame_timer: Timer::from_seconds(1.0 / (fps as f32), TimerMode::Once),
             delay:       0.0, // because I need it and don't want another to add another Timer :p
             looping:     false,
+            started:     false,
         }
     }
 
@@ -45,14 +47,28 @@ impl SpriteAnimation {
             frame_timer: Timer::from_seconds(0.001, TimerMode::Once),
             delay:       0.0,
             looping:     false,
+            started:     false,
         }
     }
 }
 
 pub fn sprite_animations_plugin(app: &mut App) {
-    app.add_systems(Update, play_animations)
+    app.add_systems(Update, (set_first_frame, play_animations).chain())
         .register_type::<SpriteAnimation>()
         .add_event::<SpriteAnimationFinished>();
+}
+
+fn set_first_frame(mut query: Query<(&mut SpriteAnimation, &mut Sprite)>) {
+    query.iter_mut().for_each(|(mut animation, mut sprite)| {
+        if !animation.started {
+            sprite
+                .texture_atlas
+                .as_mut()
+                .expect("Animated Sprite with no Texture Atlas")
+                .index = animation.first_index;
+            animation.started = true;
+        }
+    });
 }
 
 fn play_animations(
@@ -76,11 +92,6 @@ fn play_animations(
                     .expect("Animated Sprite with no Texture Atlas");
 
                 // let previous_index = atlas.index;
-
-                if animation.first_index == animation.last_index {
-                    atlas.index = animation.first_index;
-                }
-
                 if atlas.index == animation.last_index {
                     if animation.looping {
                         atlas.index = animation.first_index;
@@ -93,7 +104,6 @@ fn play_animations(
                     atlas.index += 1;
                     animation.frame_timer.reset();
                 }
-
                 // info!(
                 //     "Playing sprite index {} - {}",
                 //     animation.first_index, animation.last_index
