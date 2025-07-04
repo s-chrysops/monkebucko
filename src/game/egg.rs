@@ -1437,7 +1437,7 @@ fn get_egg_interactions(
     let player_in_range = player_transform
         .translation
         .distance(target_transform.translation)
-        > INTERACTION_RANGE;
+        < INTERACTION_RANGE;
 
     player_in_range.then_some(*entity_interaction)
 }
