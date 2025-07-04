@@ -85,7 +85,7 @@ pub fn egg_plugin(app: &mut App) {
             .pipe(play_interactions)
             .run_if(in_state(GameState::Egg))
             .run_if(in_state(MovementState::Enabled))
-            .run_if(pressing_interact_key),
+            .run_if(pressed_interact_key),
     )
     .add_systems(OnEnter(EggState::Special), setup_camera_movements)
     .add_systems(
@@ -317,8 +317,10 @@ fn spawn_world(
     }));
 
     // Crack
+    let crack_entity = commands.spawn_empty().id();
     commands
-        .spawn((
+        .entity(crack_entity)
+        .insert((
             OnEggScene,
             Crack,
             Health(CRACK_HEALTH),
@@ -327,7 +329,7 @@ fn spawn_world(
             MeshMaterial3d(crack_materials[0].clone_weak()),
             crack_materials,
             PICKABLE,
-            EntityInteraction::Special,
+            EntityInteraction::Special(crack_entity),
             SpecialInteraction::new(move |commands: &mut Commands, _entity: Entity| {
                 commands.set_state(EggState::Special);
             }),
@@ -1341,6 +1343,9 @@ fn egg_special(
                     || info.id == EggSpecialElementId::PunchUpper
             })
             .for_each(|(info, mut player)| {
+                info.parts.iter().for_each(|&entity| {
+                    *q_sprite_animations.get_mut(entity).unwrap() = SpriteAnimation::set_frame(0);
+                });
                 player.stop_all().play(info.out_node);
             });
         player_animation.stop_all().play(**fade_node);
@@ -1418,40 +1423,23 @@ fn out_interactables(
     }
 }
 
-const INTERACTION_RANGE: f32 = 1.0;
-
 fn get_egg_interactions(
     player: Single<(&InteractTarget, &Transform), With<Player>>,
     q_interactables: Query<(&EntityInteraction, &Transform)>,
-) -> Option<(EntityInteraction, Entity)> {
-    // info!("Interacting");
-    let (InteractTarget(Some(target_entity)), player_transform) = player.into_inner() else {
-        debug!("InteractTarget(None)");
-        return None;
-    };
+) -> Option<EntityInteraction> {
+    const INTERACTION_RANGE: f32 = 1.0;
 
-    // info!("Target Entity: {}", target_entity);
+    let (InteractTarget(target_entity), player_transform) = player.into_inner();
+    let target_entity = (*target_entity)?;
 
-    let Ok((entity_interaction, target_transform)) = q_interactables.get_inner(*target_entity)
-    else {
-        warn!(
-            "Unable to find interaction target entity: {}",
-            *target_entity
-        );
-        return None;
-    };
-    // info!("Entity Interaction: {:?}", entity_interaction);
+    let (entity_interaction, target_transform) = q_interactables.get_inner(target_entity).ok()?;
 
-    if player_transform
+    let player_in_range = player_transform
         .translation
         .distance(target_transform.translation)
-        > INTERACTION_RANGE
-    {
-        debug!("Interaction target not in range");
-        return None;
-    }
+        > INTERACTION_RANGE;
 
-    Some((entity_interaction.clone(), *target_entity))
+    player_in_range.then_some(*entity_interaction)
 }
 
 fn cursor_grab(q_windows: Single<&mut Window, With<PrimaryWindow>>) {

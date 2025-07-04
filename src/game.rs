@@ -34,16 +34,23 @@ struct WorldCamera;
 
 pub fn game_plugin(app: &mut App) {
     app.add_plugins((egg_plugin, topdown_plugin))
-        .init_state::<GameState>()
-        .init_state::<MovementState>()
-        .init_resource::<UserInput>()
         .add_systems(OnEnter(AppState::Game), game_setup)
         .add_systems(PreUpdate, get_user_input)
-        .add_systems(Update, update_fade)
         .add_systems(
             Update,
-            on_text_interaction.run_if(any_with_component::<InteractionText>),
-        );
+            (
+                advance_text_interaction
+                    .run_if(pressed_advance_key.and(any_with_component::<InteractionText>)),
+                conclude_text_interaction
+                    .run_if(in_state(InteractionState::Text).and(on_event::<InteractionAdvance>)),
+                update_fade,
+            ),
+        )
+        .add_event::<InteractionAdvance>()
+        .init_resource::<UserInput>()
+        .init_state::<GameState>()
+        .init_state::<MovementState>()
+        .init_state::<InteractionState>();
 }
 
 fn game_setup(mut commands: Commands) {
@@ -96,14 +103,28 @@ fn get_user_input(
     }
 }
 
+#[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
+enum InteractionState {
+    #[default]
+    None,
+    Text,
+    Monologue,
+    Dialogue,
+}
+
+#[derive(Debug, Event)]
+struct InteractionAdvance;
+
 // Current entity with [EntityInteraction] in focus
 #[derive(Debug, Component)]
 struct InteractTarget(Option<Entity>);
 
-#[derive(Clone, Component)]
+#[derive(Clone, Copy, Component)]
 enum EntityInteraction {
     Text(&'static str),
-    Special,
+    Monologue,
+    Dialouge,
+    Special(Entity),
 }
 
 #[derive(Component)]
@@ -122,19 +143,12 @@ impl SpecialInteraction {
     }
 }
 
-fn pressing_interact_key(
-    key_input: Res<ButtonInput<KeyCode>>,
-    settings: Res<Persistent<Settings>>,
-) -> bool {
-    key_input.just_pressed(settings.interact)
-}
-
 fn play_interactions(
-    In(input): In<Option<(EntityInteraction, Entity)>>,
+    In(input): In<Option<EntityInteraction>>,
     special_interactions: Query<&SpecialInteraction, With<EntityInteraction>>,
     mut commands: Commands,
 ) {
-    let Some((interaction, entity)) = input else {
+    let Some(interaction) = input else {
         debug!("Entity Interaction input invalid");
         return;
     };
@@ -142,40 +156,50 @@ fn play_interactions(
     commands.set_state(MovementState::Disabled);
     match interaction {
         EntityInteraction::Text(text) => {
+            commands.set_state(InteractionState::Text);
             commands
                 .spawn(interaction_panel())
                 .with_child(interaction_text(text));
         }
-        EntityInteraction::Special => {
-            let Ok(func) = special_interactions.get(entity) else {
-                warn!("Failed to get special interaction from entity: {}", entity);
-                return;
-            };
-            func.0(&mut commands, entity);
+        EntityInteraction::Monologue => {
+            commands.set_state(InteractionState::Monologue);
+        }
+        EntityInteraction::Dialouge => {
+            commands.set_state(InteractionState::Dialogue);
+            commands
+                .spawn(interaction_panel())
+                .with_child(interaction_text(""));
+        }
+        EntityInteraction::Special(entity) => {
+            special_interactions
+                .get(entity)
+                .expect("Entity should have SpecialInteraction component")
+                .0(&mut commands, entity);
         }
     }
 }
 
-fn on_text_interaction(
-    mut commands: Commands,
-    key_input: Res<ButtonInput<KeyCode>>,
-    settings: Res<Persistent<Settings>>,
-    interaction_panel: Single<Entity, With<InteractionPanel>>,
+fn advance_text_interaction(
+    mut e_writer: EventWriter<InteractionAdvance>,
     interaction_text: Single<(&mut TextSimpleAnimator, &mut Text), With<InteractionText>>,
 ) {
-    if !key_input.any_just_pressed([settings.jump, settings.interact, KeyCode::Escape]) {
-        return;
-    }
-
-    // Skip text animation
+    // Skip playing text animation
     let (mut animator, mut text) = interaction_text.into_inner();
     if animator.is_playing() {
         text.0 = animator.text.clone();
-        animator.state = TextAnimationState::Stopped;
+        animator.stop();
         return;
     }
 
+    e_writer.write(InteractionAdvance);
+}
+
+fn conclude_text_interaction(
+    mut commands: Commands,
+    interaction_panel: Single<Entity, With<InteractionPanel>>,
+) {
     commands.entity(interaction_panel.into_inner()).despawn();
+    commands.set_state(InteractionState::None);
     commands.set_state(MovementState::Enabled);
 }
 
@@ -190,10 +214,10 @@ fn interaction_panel() -> impl Bundle {
         InteractionPanel,
         Node {
             position_type: PositionType::Absolute,
-            top: Val::Percent(70.0),
-            left: Val::Percent(10.0),
-            width: Val::Percent(80.0),
-            height: Val::Percent(20.0),
+            top: Val::Percent(87.5),
+            left: Val::Percent(0.0),
+            width: Val::Percent(100.0),
+            height: Val::Percent(12.5),
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
             ..default()
@@ -227,4 +251,24 @@ fn update_fade(mut q_fade: Query<(&mut Sprite, &Opacity), (With<Fade>, Changed<O
     q_fade.iter_mut().for_each(|(mut sprite, Opacity(alpha))| {
         sprite.color = sprite.color.with_alpha(*alpha);
     });
+}
+
+fn pressed_interact_key(
+    key_input: Res<ButtonInput<KeyCode>>,
+    settings: Res<Persistent<Settings>>,
+) -> bool {
+    key_input.just_pressed(settings.interact)
+}
+
+fn pressed_advance_key(
+    key_input: Res<ButtonInput<KeyCode>>,
+    settings: Res<Persistent<Settings>>,
+) -> bool {
+    key_input.any_just_pressed([
+        settings.jump,
+        settings.interact,
+        KeyCode::Escape,
+        KeyCode::Enter,
+        KeyCode::NumpadEnter,
+    ])
 }
