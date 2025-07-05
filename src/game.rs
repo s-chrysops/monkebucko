@@ -3,13 +3,25 @@ use std::sync::Arc;
 use bevy::{color::palettes::css::*, prelude::*};
 use bevy_persistent::Persistent;
 use bevy_text_animation::*;
+use serde::{Deserialize, Serialize};
 
 use super::{AppState, Settings};
+use dialogue::*;
 use egg::egg_plugin;
 use topdown::topdown_plugin;
 
+mod dialogue;
 mod egg;
 mod topdown;
+
+const PICKABLE: Pickable = Pickable {
+    should_block_lower: true,
+    is_hoverable:       true,
+};
+
+const _Z_BASE: f32 = 0.0;
+const Z_SPRITES: f32 = 1.0;
+const Z_EFFECTS: f32 = 2.0;
 
 #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
 enum GameState {
@@ -33,7 +45,7 @@ struct Player;
 struct WorldCamera;
 
 pub fn game_plugin(app: &mut App) {
-    app.add_plugins((egg_plugin, topdown_plugin))
+    app.add_plugins((dialogue_plugin, egg_plugin, topdown_plugin))
         .add_systems(OnEnter(AppState::Game), game_setup)
         .add_systems(PreUpdate, get_user_input)
         .add_systems(
@@ -46,11 +58,18 @@ pub fn game_plugin(app: &mut App) {
                 update_fade,
             ),
         )
+        // .add_systems(
+        //     Update,
+        //     (|state: Res<State<MovementState>>| info!("{:?}", **state))
+        //         .run_if(state_changed::<MovementState>),
+        // )
         .add_event::<InteractionAdvance>()
         .init_resource::<UserInput>()
         .init_state::<GameState>()
         .init_state::<MovementState>()
-        .init_state::<InteractionState>();
+        .init_state::<InteractionState>()
+        .register_type::<InteractTarget>()
+        .register_type::<EntityInteraction>();
 }
 
 fn game_setup(mut commands: Commands) {
@@ -116,14 +135,16 @@ enum InteractionState {
 struct InteractionAdvance;
 
 // Current entity with [EntityInteraction] in focus
-#[derive(Debug, Component)]
+#[derive(Debug, Component, Reflect)]
+#[reflect(Component)]
 struct InteractTarget(Option<Entity>);
 
-#[derive(Clone, Copy, Component)]
+#[derive(Debug, Clone, Component, Reflect, Serialize, Deserialize)]
+#[reflect(Component, Serialize, Deserialize)]
 enum EntityInteraction {
-    Text(&'static str),
+    Text(String),
     Monologue,
-    Dialouge,
+    Dialogue(DialogueId),
     Special(Entity),
 }
 
@@ -148,6 +169,9 @@ fn play_interactions(
     special_interactions: Query<&SpecialInteraction, With<EntityInteraction>>,
     mut commands: Commands,
 ) {
+    const CLEAR: f32 = 0.0;
+    const OPACITY_75: f32 = 0.75;
+
     let Some(interaction) = input else {
         debug!("Entity Interaction input invalid");
         return;
@@ -158,16 +182,22 @@ fn play_interactions(
         EntityInteraction::Text(text) => {
             commands.set_state(InteractionState::Text);
             commands
-                .spawn(interaction_panel())
-                .with_child(interaction_text(text));
+                .spawn(interaction_panel(OPACITY_75))
+                .with_child(interaction_text(&text));
         }
         EntityInteraction::Monologue => {
             commands.set_state(InteractionState::Monologue);
         }
-        EntityInteraction::Dialouge => {
+        EntityInteraction::Dialogue(id) => {
+            if id == DialogueId::None {
+                commands.set_state(MovementState::Enabled);
+                return;
+            }
+
             commands.set_state(InteractionState::Dialogue);
+            commands.insert_resource(DialogueCurrentId(id));
             commands
-                .spawn(interaction_panel())
+                .spawn(interaction_panel(CLEAR))
                 .with_child(interaction_text(""));
         }
         EntityInteraction::Special(entity) => {
@@ -209,7 +239,7 @@ struct InteractionPanel;
 #[derive(Debug, Component)]
 struct InteractionText;
 
-fn interaction_panel() -> impl Bundle {
+fn interaction_panel(opacity: f32) -> impl Bundle {
     (
         InteractionPanel,
         Node {
@@ -222,11 +252,11 @@ fn interaction_panel() -> impl Bundle {
             align_items: AlignItems::Center,
             ..default()
         },
-        BackgroundColor(Color::linear_rgba(0.0, 0.0, 0.0, 0.75)),
+        BackgroundColor(Color::linear_rgba(0.0, 0.0, 0.0, opacity)),
     )
 }
 
-fn interaction_text(text: &'static str) -> impl Bundle {
+fn interaction_text(text: &str) -> impl Bundle {
     (
         InteractionText,
         Text::new(""),

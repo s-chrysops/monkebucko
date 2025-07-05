@@ -1,7 +1,5 @@
 use avian2d::PhysicsPlugins;
-// use avian2d::prelude::PhysicsDebugPlugin;
 use bevy::{
-    // dev_tools::picking_debug::{DebugPickingMode, DebugPickingPlugin},
     prelude::*,
     render::{camera::CameraOutputMode, render_resource::*, view::RenderLayers},
     window::WindowResolution,
@@ -89,6 +87,10 @@ fn main() {
                 }),
                 ..default()
             })
+            // .set(PickingPlugin {
+            //     is_window_picking_enabled: false,
+            //     ..default()
+            // })
             .set(ImagePlugin::default_nearest()),
         MeshPickingPlugin,
         TextAnimatorPlugin,
@@ -101,13 +103,13 @@ fn main() {
         TiledPhysicsPlugin::<TiledPhysicsAvianBackend>::default(),
         PhysicsPlugins::default().with_length_unit(32.0),
         EntropyPlugin::<WyRand>::default(),
-        // PhysicsDebugPlugin::default(),
-        // DebugPickingPlugin,
+        // avian2d::prelude::PhysicsDebugPlugin::default(),
+        // bevy::dev_tools::picking_debug::DebugPickingPlugin,
+        // bevy_inspector_egui::quick::WorldInspectorPlugin::new(),
+        // bevy_inspector_egui::bevy_egui::EguiPlugin {
+        //     enable_multipass_for_primary_context: true,
+        // },
     ))
-    .add_plugins(bevy_inspector_egui::bevy_egui::EguiPlugin {
-        enable_multipass_for_primary_context: true,
-    })
-    .add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::new())
     .add_plugins((
         game_plugin,
         menu_plugin,

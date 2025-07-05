@@ -21,11 +21,6 @@ use crate::{
 
 use super::*;
 
-const PICKABLE: Pickable = Pickable {
-    should_block_lower: true,
-    is_hoverable:       true,
-};
-
 #[derive(Debug, Component)]
 struct OnEggScene;
 
@@ -265,7 +260,7 @@ fn spawn_world(
             Transform::from_xyz(0.3, 1.4, 1.525),
             PICKABLE,
             EntityInteraction::Text(
-                "Through eons of void, these photons birth from fusion, lay to rest in you.",
+                "Through eons of void, these photons birth from fusion, lay to rest in you.".to_string(),
             ),
         ))
         .observe(over_interactables)
@@ -458,7 +453,7 @@ fn spawn_egg_special_elements(
                 .spawn((
                     punch_lr_sprite,
                     SpriteAnimation::set_frame(0),
-                    Transform::from_xyz(256.0, 0.0, 0.0),
+                    Transform::from_xyz(256.0, 0.0, Z_SPRITES),
                     RENDER_LAYER_OVERLAY,
                 ))
                 .id(),
@@ -466,7 +461,7 @@ fn spawn_egg_special_elements(
                 .spawn((
                     punch_ll_sprite,
                     SpriteAnimation::set_frame(0),
-                    Transform::from_xyz(-256.0, 0.0, 0.0),
+                    Transform::from_xyz(-256.0, 0.0, Z_SPRITES),
                     RENDER_LAYER_OVERLAY,
                 ))
                 .id(),
@@ -529,10 +524,10 @@ fn spawn_egg_special_elements(
         let punch_ur_id = AnimationTargetId::from_name(&punch_ur_name);
         let punch_ul_id = AnimationTargetId::from_name(&punch_ul_name);
 
-        let punch_ur_in = Vec3::new(280.0, 128.0, 1.0);
-        let punch_ur_out = Vec3::new(636.0, 128.0, 1.0);
-        let punch_ul_in = Vec3::new(-280.0, 128.0, 1.0);
-        let punch_ul_out = Vec3::new(-636.0, 128.0, 1.0);
+        let punch_ur_in = Vec3::new(280.0, 128.0, Z_SPRITES + 0.1);
+        let punch_ur_out = Vec3::new(636.0, 128.0, Z_SPRITES + 0.1);
+        let punch_ul_in = Vec3::new(-280.0, 128.0, Z_SPRITES + 0.1);
+        let punch_ul_out = Vec3::new(-636.0, 128.0, Z_SPRITES + 0.1);
 
         let punch_upper_clip_in = animation_clips.add({
             let mut clip = AnimationClip::default();
@@ -661,8 +656,8 @@ fn spawn_egg_special_elements(
                 flip_x:          false,
                 custom_size:     Some(vec2(512.0, 264.0)),
                 rotation:        Quat::default(),
-                translation_in:  vec3(-270.0, -228.0, 2.0),
-                translation_out: vec3(-270.0, -374.0, 2.0),
+                translation_in:  vec3(-270.0, -228.0, Z_SPRITES + 0.2),
+                translation_out: vec3(-270.0, -374.0, Z_SPRITES + 0.2),
             },
             PreElement {
                 name:            "shotgun",
@@ -677,8 +672,8 @@ fn spawn_egg_special_elements(
                 flip_x:          false,
                 custom_size:     Some(vec2(276.0, 312.0)),
                 rotation:        Quat::default(),
-                translation_in:  vec3(500.0, -206.0, 0.0),
-                translation_out: vec3(500.0, -414.0, 0.0),
+                translation_in:  vec3(500.0, -206.0, Z_SPRITES + 0.2),
+                translation_out: vec3(500.0, -414.0, Z_SPRITES + 0.2),
             },
             PreElement {
                 name:            "pistol1",
@@ -693,8 +688,8 @@ fn spawn_egg_special_elements(
                 flip_x:          false,
                 custom_size:     Some(vec2(304.0, 304.0)),
                 rotation:        CCW90_ROTATION,
-                translation_in:  vec3(488.0, 152.0, 0.0),
-                translation_out: vec3(684.0, 152.0, 0.0),
+                translation_in:  vec3(488.0, 152.0, Z_SPRITES + 0.2),
+                translation_out: vec3(684.0, 152.0, Z_SPRITES + 0.2),
             },
             PreElement {
                 name:            "pistol2",
@@ -709,8 +704,8 @@ fn spawn_egg_special_elements(
                 flip_x:          true,
                 custom_size:     Some(vec2(224.0, 264.0)),
                 rotation:        CW90_ROTATION,
-                translation_in:  vec3(-507.0, 96.0, 0.0),
-                translation_out: vec3(-706.0, 96.0, 0.0),
+                translation_in:  vec3(-507.0, 96.0, Z_SPRITES + 0.2),
+                translation_out: vec3(-706.0, 96.0, Z_SPRITES + 0.2),
             },
         ];
 
@@ -1032,7 +1027,7 @@ fn setup_camera_movements(
             player: player_entity,
         },
         fade_target_name,
-        Transform::from_xyz(0.0, 0.0, 3.0),
+        Transform::from_xyz(0.0, 0.0, Z_EFFECTS),
         RENDER_LAYER_OVERLAY,
     ));
 
@@ -1439,7 +1434,7 @@ fn get_egg_interactions(
         .distance(target_transform.translation)
         < INTERACTION_RANGE;
 
-    player_in_range.then_some(*entity_interaction)
+    player_in_range.then_some(entity_interaction.clone())
 }
 
 fn cursor_grab(q_windows: Single<&mut Window, With<PrimaryWindow>>) {

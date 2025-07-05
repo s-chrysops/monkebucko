@@ -27,6 +27,7 @@ pub fn topdown_plugin(app: &mut App) {
         Update,
         (
             camera_system,
+            detect_interactables,
             update_player_submerged,
             update_player_z,
             wait_for_fade,
@@ -36,17 +37,15 @@ pub fn topdown_plugin(app: &mut App) {
     )
     .add_systems(
         Update,
-        player_hop
+        (
+            player_hop.run_if(not(player_submerged)),
+            player_swim.run_if(player_submerged),
+            get_topdown_interactions
+                .pipe(play_interactions)
+                .run_if(in_state(InteractionState::None).and(pressed_interact_key)),
+        )
             .run_if(in_state(GameState::TopDown))
-            .run_if(in_state(MovementState::Enabled))
-            .run_if(not(player_submerged)),
-    )
-    .add_systems(
-        Update,
-        player_swim
-            .run_if(in_state(GameState::TopDown))
-            .run_if(in_state(MovementState::Enabled))
-            .run_if(player_submerged),
+            .run_if(in_state(MovementState::Enabled)),
     )
     .add_observer(setup_current_map)
     .register_type::<HopState>()
@@ -93,7 +92,8 @@ fn topdown_setup(
 
     commands
         .spawn(TiledMapHandle(topdown_maps[current_map.index].clone_weak()))
-        .observe(setup_collider_bodies);
+        .observe(setup_collider_bodies)
+        .observe(setup_interactables);
 }
 
 #[derive(Debug, Default, Resource)]
@@ -128,9 +128,9 @@ fn setup_current_map(
         return;
     };
 
-    // Objects higher up on the map will be given a greater negative z-offset
     map_storage.objects.iter().for_each(|(_tiled_id, entity)| {
         if let Ok(mut transform) = q_tiled_objects.get_mut(*entity) {
+            // Objects higher up on the map will be given a greater negative z-offset
             let offset_y = transform.translation.y - tiled_map.rect.min.y;
             transform.translation.z -= offset_y / tiled_map.rect.height() * Z_BETWEEN_LAYERS;
         }
@@ -148,6 +148,23 @@ fn setup_current_map(
             false => None,
         }
     });
+}
+
+fn setup_interactables(
+    trigger: Trigger<TiledObjectCreated>,
+    // mut commands: Commands,
+    mut q_interactables: Query<(Entity, &EntityInteraction), With<TiledMapObject>>,
+    mut ready_dialogues: ResMut<DialoguePreload>,
+) {
+    if let Ok((_entity, EntityInteraction::Dialogue(id))) = q_interactables.get_mut(trigger.entity)
+    {
+        ready_dialogues.push(*id);
+        // commands
+        //     .entity(entity)
+        //     .insert(PICKABLE)
+        //     .observe(over_interactables)
+        //     .observe(out_interactables);
+    }
 }
 
 fn setup_collider_bodies(
@@ -213,7 +230,7 @@ fn wait_for_fade(
     q_fade: Query<&mut AnimationPlayer, With<Fade>>,
     mut movement_state: ResMut<NextState<MovementState>>,
 ) {
-    if q_fade.iter().all(|player| player.all_finished()) {
+    if !q_fade.is_empty() && q_fade.iter().all(|player| player.all_finished()) {
         movement_state.set(MovementState::Enabled);
     }
 }
@@ -563,6 +580,75 @@ fn player_submerged(player_submerged: Single<&Submerged, With<Player>>) -> bool 
     player_submerged.0
 }
 
+fn detect_interactables(
+    q_interactables: Query<(Entity, &Transform), (With<EntityInteraction>, Without<Player>)>,
+    player: Single<(&mut InteractTarget, &Transform), With<Player>>,
+) {
+    const INTERACTION_RANGE: f32 = 32.0;
+    let range_squared = INTERACTION_RANGE.powi(2);
+
+    let (mut target, player_transform) = player.into_inner();
+    let player_position = player_transform.translation.truncate();
+    target.0 = q_interactables
+        .iter()
+        .find_map(|(entity, interactable_transform)| {
+            let interactable_position = interactable_transform.translation.truncate();
+            (interactable_position.distance_squared(player_position) < range_squared)
+                .then_some(entity)
+        });
+}
+
+fn _over_interactables(
+    over: Trigger<Pointer<Over>>,
+    q_interactables: Query<Entity, With<EntityInteraction>>,
+    mut player: Single<&mut InteractTarget, With<Player>>,
+) {
+    info!("OVER");
+    if let Ok(target_entity) = q_interactables.get(over.target()) {
+        player.0 = Some(target_entity);
+    }
+}
+
+fn _out_interactables(
+    out: Trigger<Pointer<Out>>,
+    q_interactables: Query<Entity, With<EntityInteraction>>,
+    mut player: Single<&mut InteractTarget, With<Player>>,
+) {
+    if let Ok(_target_entity) = q_interactables.get(out.target()) {
+        player.0 = None;
+    }
+}
+
+fn get_topdown_interactions(
+    player: Single<(&InteractTarget, &Transform), With<Player>>,
+    q_interactables: Query<(&mut EntityInteraction, &Transform)>,
+) -> Option<EntityInteraction> {
+    // const INTERACTION_RANGE: f32 = 32.0;
+
+    let (InteractTarget(target_entity), _player_transform) = player.into_inner();
+    let target_entity = (*target_entity)?;
+
+    let (mut entity_interaction, _target_transform) =
+        q_interactables.get_inner(target_entity).ok()?;
+
+    // let player_in_range = player_transform
+    //     .translation
+    //     .truncate()
+    //     .distance(target_transform.translation.truncate())
+    //     < INTERACTION_RANGE;
+
+    // player_in_range.then_some(entity_interaction.clone())
+
+    let entity_interaction = match entity_interaction.as_mut() {
+        EntityInteraction::Dialogue(dialogue_id) => {
+            EntityInteraction::Dialogue(std::mem::take(dialogue_id))
+        }
+        _ => entity_interaction.clone(),
+    };
+
+    Some(entity_interaction)
+}
+
 fn camera_system(
     mut camera_transform: Single<&mut Transform, With<WorldCamera>>,
     player: Single<&Transform, (With<Player>, Without<WorldCamera>)>,
@@ -613,5 +699,7 @@ fn get_tile_pos(position: Vec3, tile_map_size: &TilemapSize) -> Option<TilePos> 
             .as_uvec2(),
     );
 
-    tile_pos.within_map_bounds(tile_map_size).then_some(tile_pos)
+    tile_pos
+        .within_map_bounds(tile_map_size)
+        .then_some(tile_pos)
 }

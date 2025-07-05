@@ -8,10 +8,13 @@ pub struct SpriteAnimationFinished(Entity);
 pub struct SpriteAnimation {
     first_index: usize,
     last_index:  usize,
+
     frame_timer: Timer,
     delay:       f32,
-    looping:     bool,
-    started:     bool,
+
+    looping: bool,
+    playing: bool,
+    started: bool,
 }
 
 impl SpriteAnimation {
@@ -22,18 +25,9 @@ impl SpriteAnimation {
             frame_timer: Timer::from_seconds(1.0 / (fps as f32), TimerMode::Once),
             delay:       0.0, // because I need it and don't want another to add another Timer :p
             looping:     false,
+            playing:     true,
             started:     false,
         }
-    }
-
-    pub fn looping(mut self) -> Self {
-        self.looping = true;
-        self
-    }
-
-    pub fn with_delay(mut self, secs: f32) -> Self {
-        self.delay = secs;
-        self
     }
 
     // A little hack to change sprite without the Sprite component
@@ -47,8 +41,34 @@ impl SpriteAnimation {
             frame_timer: Timer::from_seconds(0.001, TimerMode::Once),
             delay:       0.0,
             looping:     false,
+            playing:     true,
             started:     false,
         }
+    }
+
+    pub fn with_delay(mut self, secs: f32) -> Self {
+        self.delay = secs;
+        self
+    }
+
+    pub fn looping(mut self) -> Self {
+        self.looping = true;
+        self
+    }
+
+    pub fn paused(mut self) -> Self {
+        self.playing = false;
+        self
+    }
+
+    pub fn play(&mut self) -> &mut Self {
+        self.playing = true;
+        self
+    }
+
+    pub fn _pause(&mut self) -> &mut Self {
+        self.playing = false;
+        self
     }
 }
 
@@ -79,6 +99,7 @@ fn play_animations(
 ) {
     query
         .iter_mut()
+        .filter(|(_entity, animation, _sprite)| animation.playing)
         .for_each(|(entity, mut animation, mut sprite)| {
             if animation.delay > 0.0 {
                 animation.delay -= time.delta_secs();
