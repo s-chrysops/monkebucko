@@ -1,6 +1,6 @@
 [package]
 name = "monkebucko"
-version = "0.5.0"
+version = "0.5.2"
 edition = "2024"
 authors = ["Scup st.chrysops@gmail.com"]
 
@@ -17,6 +17,8 @@ bevy_text_animation = "0.4.1"
 avian2d = "0.3.0"
 bevy_ecs_tiled = { git = "https://github.com/s-chrysops/bevy_ecs_tiled.git", features = ["avian", "user_properties"] }
 bevy_ecs_tilemap = "0.16"
+
+nohash-hasher = "0.2.0"
 
 bevy-inspector-egui = "0.31"
 
