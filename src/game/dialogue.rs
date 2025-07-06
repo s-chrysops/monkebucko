@@ -1,13 +1,20 @@
+use nohash_hasher::IsEnabled;
+use std::hash::{BuildHasherDefault, Hash};
+
 use bevy::{
     animation::{AnimationTarget, AnimationTargetId, animated_field},
     asset::LoadState,
+    platform::collections::HashMap,
     prelude::*,
 };
 use bevy_text_animation::TextSimpleAnimator;
 use serde::{Deserialize, Serialize};
 
 use super::*;
-use crate::{RENDER_LAYER_OVERLAY, WINDOW_HEIGHT, WINDOW_WIDTH, animation::SpriteAnimation};
+use crate::{
+    BuckoNoHashHasher, RENDER_LAYER_OVERLAY, WINDOW_HEIGHT, WINDOW_WIDTH,
+    animation::SpriteAnimation,
+};
 
 #[derive(SubStates, Clone, PartialEq, Eq, Hash, Debug, Default)]
 #[source(InteractionState = InteractionState::Dialogue)]
@@ -46,10 +53,16 @@ pub fn dialogue_plugin(app: &mut App) {
         .add_event::<CinematicBarsIn>()
         .add_event::<CinematicBarsOut>()
         .add_sub_state::<DialogueState>()
-        .init_resource::<DialogueStorage>()
         .init_resource::<DialoguePreload>()
-        .register_type::<DialoguePreload>()
-        .register_type::<DialogueId>();
+        .init_resource::<DialogueStorage>()
+        .register_type::<DialogueId>()
+        .register_type::<DialogueElement>()
+        .register_type::<DialogueLine>()
+        .register_type::<DialogueAction>()
+        .register_type::<ActionMode>()
+        .register_type::<Dialogue>()
+        .register_type::<DialogueStorage>()
+        .register_type::<DialoguePreload>();
 }
 
 #[derive(Debug, Component)]
@@ -203,11 +216,15 @@ fn fetch_dialouge(
     mut commands: Commands,
     current_id: Res<DialogueCurrentId>,
     q_dialogues: Query<(&DialogueId, Entity), With<DialogueRoot>>,
+    storage: Res<DialogueStorage>,
+    asset_server: Res<AssetServer>,
 ) {
     let current_dialouge_entity = q_dialogues
         .iter()
         .find_map(|(id, entity)| (*id == current_id.0).then_some(entity))
-        .expect("Current dialogue should be preloaded");
+        .unwrap_or_else(|| {
+            load_dialogue(commands.reborrow(), &storage, &asset_server, &current_id)
+        });
 
     commands
         .entity(current_dialouge_entity)
@@ -301,7 +318,9 @@ fn wait_for_bars(
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, Component, PartialEq, Reflect, Serialize, Deserialize)]
+#[derive(
+    Debug, Default, Clone, Copy, Component, PartialEq, Eq, Reflect, Serialize, Deserialize,
+)]
 #[reflect(Default, Component, Serialize, Deserialize)]
 pub enum DialogueId {
     #[default]
@@ -312,7 +331,15 @@ pub enum DialogueId {
     WizuckoIntro,
 }
 
-#[derive(Debug)]
+impl Hash for DialogueId {
+    fn hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
+        hasher.write_usize(*self as usize);
+    }
+}
+
+impl IsEnabled for DialogueId {}
+
+#[derive(Debug, Reflect)]
 // A Sprite to be loaded for a Dialogue scene that can have its own animation
 // and be animated via DialogueActions
 struct DialogueElement {
@@ -338,7 +365,7 @@ impl DialogueElement {
         }
     }
 
-    fn _custom_size(mut self, custom_size: Vec2) -> Self {
+    fn custom_size(mut self, custom_size: Vec2) -> Self {
         self.custom_size = Some(custom_size);
         self
     }
@@ -359,7 +386,7 @@ impl DialogueElement {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Reflect)]
 // Contains any actions for DialogueElements to be played during the line
 struct DialogueLine {
     text:    &'static str,
@@ -394,15 +421,15 @@ impl DialogueLine {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Reflect)]
 enum ActionMode {
     Translate,
     _Rotate,
-    _Scale,
+    Scale,
 }
 
 // A Transform animation to be played on an indexed DialogueElement
-#[derive(Debug)]
+#[derive(Debug, Reflect)]
 struct DialogueAction {
     element: usize,
 
@@ -428,7 +455,12 @@ impl DialogueAction {
         }
     }
 
-    fn _mode(mut self, mode: ActionMode) -> Self {
+    fn teleport(element: usize, start: Vec2, end: Vec2) -> Self {
+        // this is jank af
+        Self::new(element).start(start).end(end).duration(0.001)
+    }
+
+    fn mode(mut self, mode: ActionMode) -> Self {
         self.mode = mode;
         self
     }
@@ -443,17 +475,17 @@ impl DialogueAction {
         self
     }
 
-    fn _ease(mut self, ease: EaseFunction) -> Self {
+    fn ease(mut self, ease: EaseFunction) -> Self {
         self.ease = ease;
         self
     }
 
-    fn _delay(mut self, delay: f32) -> Self {
+    fn delay(mut self, delay: f32) -> Self {
         self.delay = delay;
         self
     }
 
-    fn _duration(mut self, duration: f32) -> Self {
+    fn duration(mut self, duration: f32) -> Self {
         self.duration = duration;
         self
     }
@@ -463,13 +495,12 @@ impl DialogueAction {
 struct DialogueRoot;
 
 // A cutscene of dialogue with elements and lines with actions that act on those elements
-#[derive(Debug)]
+#[derive(Debug, Reflect)]
 struct Dialogue {
-    _id:      DialogueId,
     elements: Vec<DialogueElement>,
-
-    lines: Vec<DialogueLine>,
+    lines:    Vec<DialogueLine>,
 }
+
 #[derive(Debug, Component)]
 struct DialogueInfo {
     images: Vec<Handle<Image>>,
@@ -511,6 +542,9 @@ impl TextAnimatorInfo {
 #[derive(Clone, Copy, Debug, Event)]
 struct ClipStarted;
 
+#[derive(Clone, Copy, Debug, Event)]
+struct ClipEnded;
+
 const ELEMENT_TILE_SIZE: UVec2 = UVec2::splat(64);
 
 fn preload_dialogues(
@@ -519,102 +553,117 @@ fn preload_dialogues(
     storage: Res<DialogueStorage>,
     asset_server: Res<AssetServer>,
 ) {
-    preload.iter().for_each(|&id| {
-        let dialogue = &storage[id as usize];
-
-        let root_entity = commands
-            .spawn((
-                DialogueRoot,
-                id,
-                AnimationPlayer::default(),
-                Transform::default(),
-                Visibility::Hidden,
-                RENDER_LAYER_OVERLAY,
-            ))
-            .id();
-
-        type HandlesAndIds = (Vec<Handle<Image>>, Vec<AnimationTargetId>);
-        let (image_handles, target_ids): HandlesAndIds = dialogue
-            .elements
-            .iter()
-            .map(|element| {
-                let name = Name::new(element.path);
-                let target_id = AnimationTargetId::from_name(&name);
-
-                let image_handle = asset_server.load(element.path);
-                let texture_atlas = TextureAtlas {
-                    layout: asset_server.add(TextureAtlasLayout::from_grid(
-                        ELEMENT_TILE_SIZE,
-                        element.frames as u32,
-                        1,
-                        None,
-                        None,
-                    )),
-                    index:  0,
-                };
-
-                let mut sprite_animation =
-                    SpriteAnimation::new(0, element.frames - 1, element.fps).paused();
-                if element.looping {
-                    sprite_animation = sprite_animation.looping();
-                }
-
-                commands
-                    .spawn((
-                        name,
-                        AnimationTarget {
-                            player: root_entity,
-                            id:     target_id,
-                        },
-                        ChildOf(root_entity),
-                        Sprite {
-                            image: image_handle.clone_weak(),
-                            texture_atlas: Some(texture_atlas),
-                            custom_size: element.custom_size,
-                            ..Default::default()
-                        },
-                        sprite_animation,
-                        Transform::from_xyz(-2000.0, -2000.0, 0.0),
-                        Visibility::Inherited,
-                        RENDER_LAYER_OVERLAY,
-                    ))
-                    .observe(play_sprite_animation);
-
-                (image_handle, target_id)
-            })
-            .unzip();
-
-        type AnimatorInfo = (Vec<TextAnimatorInfo>, Vec<Handle<AnimationClip>>);
-        let (text_animator_info, clips): AnimatorInfo = dialogue
-            .lines
-            .iter()
-            .map(|line| {
-                let clip = line
-                    .actions
-                    .iter()
-                    .fold(AnimationClip::default(), |clip, action| {
-                        add_action_to_clip(&target_ids, clip, action)
-                    });
-
-                (
-                    TextAnimatorInfo::new(line.text, line.speed, line.delay),
-                    asset_server.add(clip),
-                )
-            })
-            .unzip();
-
-        let (animation_graph, animation_nodes) = AnimationGraph::from_clips(clips);
-        let animation_graph_handle: Handle<AnimationGraph> = asset_server.add(animation_graph);
-
-        commands.entity(root_entity).insert((
-            AnimationGraphHandle(animation_graph_handle),
-            DialogueInfo {
-                images: image_handles,
-                texts:  text_animator_info,
-                nodes:  animation_nodes,
-            },
-        ));
+    preload.iter().for_each(|id| {
+        load_dialogue(commands.reborrow(), &storage, &asset_server, id);
     });
+}
+
+fn load_dialogue(
+    mut commands: Commands<'_, '_>,
+    storage: &Res<'_, DialogueStorage>,
+    asset_server: &Res<'_, AssetServer>,
+    id: &DialogueId,
+) -> Entity {
+    let dialogue = storage
+        .get(id)
+        .expect("Dialogue storage should have entries for every Id");
+
+    info!("Loading Dialogue: {:?}", id);
+
+    let root_entity = commands
+        .spawn((
+            DialogueRoot,
+            *id,
+            AnimationPlayer::default(),
+            Transform::default(),
+            Visibility::Hidden,
+            RENDER_LAYER_OVERLAY,
+        ))
+        .id();
+
+    type HandlesAndIds = (Vec<Handle<Image>>, Vec<AnimationTargetId>);
+    let (image_handles, target_ids): HandlesAndIds = dialogue
+        .elements
+        .iter()
+        .map(|element| {
+            let name = Name::new(element.path);
+            let target_id = AnimationTargetId::from_name(&name);
+
+            let image_handle = asset_server.load(element.path);
+            let texture_atlas = TextureAtlas {
+                layout: asset_server.add(TextureAtlasLayout::from_grid(
+                    ELEMENT_TILE_SIZE,
+                    element.frames as u32,
+                    1,
+                    None,
+                    None,
+                )),
+                index:  0,
+            };
+
+            let mut sprite_animation =
+                SpriteAnimation::new(0, element.frames - 1, element.fps).paused();
+            if element.looping {
+                sprite_animation = sprite_animation.looping();
+            }
+
+            commands
+                .spawn((
+                    name,
+                    AnimationTarget {
+                        player: root_entity,
+                        id:     target_id,
+                    },
+                    ChildOf(root_entity),
+                    Sprite {
+                        image: image_handle.clone_weak(),
+                        texture_atlas: Some(texture_atlas),
+                        custom_size: element.custom_size,
+                        ..Default::default()
+                    },
+                    sprite_animation,
+                    Transform::from_xyz(-2000.0, -2000.0, 0.0),
+                    Visibility::Inherited,
+                    RENDER_LAYER_OVERLAY,
+                ))
+                .observe(play_sprite_animation);
+
+            (image_handle, target_id)
+        })
+        .unzip();
+
+    type AnimatorInfo = (Vec<TextAnimatorInfo>, Vec<Handle<AnimationClip>>);
+    let (text_animator_info, clips): AnimatorInfo = dialogue
+        .lines
+        .iter()
+        .map(|line| {
+            let clip = line
+                .actions
+                .iter()
+                .fold(AnimationClip::default(), |clip, action| {
+                    add_action_to_clip(&target_ids, clip, action)
+                });
+
+            (
+                TextAnimatorInfo::new(line.text, line.speed, line.delay),
+                asset_server.add(clip),
+            )
+        })
+        .unzip();
+
+    let (animation_graph, animation_nodes) = AnimationGraph::from_clips(clips);
+    let animation_graph_handle: Handle<AnimationGraph> = asset_server.add(animation_graph);
+
+    commands.entity(root_entity).insert((
+        AnimationGraphHandle(animation_graph_handle),
+        DialogueInfo {
+            images: image_handles,
+            texts:  text_animator_info,
+            nodes:  animation_nodes,
+        },
+    ));
+
+    root_entity
 }
 
 fn play_sprite_animation(
@@ -663,7 +712,7 @@ fn add_action_to_clip(
                 .unwrap(),
             ),
         ),
-        ActionMode::_Scale => clip.add_curve_to_target(
+        ActionMode::Scale => clip.add_curve_to_target(
             element_target_id,
             AnimatableCurve::new(
                 animated_field!(Transform::scale),
@@ -679,25 +728,43 @@ fn add_action_to_clip(
     };
 
     clip.add_event_to_target(element_target_id, 0.0, ClipStarted);
+    clip.add_event_to_target(element_target_id, action.duration, ClipEnded);
 
     clip
 }
 
-#[derive(Debug, Deref, Resource)]
-struct DialogueStorage(Vec<Dialogue>);
+type DialogueNoHashHashmap =
+    HashMap<DialogueId, Dialogue, BuildHasherDefault<BuckoNoHashHasher<DialogueId>>>;
+
+#[derive(Debug, Deref, Resource, Reflect)]
+#[reflect(Resource)]
+struct DialogueStorage(DialogueNoHashHashmap);
 
 impl FromWorld for DialogueStorage {
     fn from_world(_world: &mut World) -> Self {
-        DialogueStorage(vec![
+        const SCENE_AREA_HEIGHT: f32 = 540.0;
+        const OFFSCREEN: Vec2 = Vec2::splat(-2000.0);
+
+        let mut storage: DialogueNoHashHashmap =
+            HashMap::with_hasher(BuildHasherDefault::<BuckoNoHashHasher<DialogueId>>::new());
+
+        storage.insert(
+            DialogueId::None,
             Dialogue {
-                _id:      DialogueId::None,
                 elements: vec![],
                 lines:    vec![],
             },
+        );
+
+        storage.insert(
+            DialogueId::UckoIntro,
             Dialogue {
-                _id:      DialogueId::UckoIntro,
                 elements: vec![
-                    DialogueElement::new("sprites/bucko/intro.png"),
+                    DialogueElement::new("sprites/bucko/intro.png")
+                        .custom_size(Vec2::splat(SCENE_AREA_HEIGHT))
+                        .frames(16)
+                        .fps(16)
+                        .looping(),
                     DialogueElement::new("sprites/ucko/group.png"),
                     DialogueElement::new("sprites/bucko/bones_1.png"),
                     DialogueElement::new("sprites/bucko/bones_2.png"),
@@ -705,19 +772,29 @@ impl FromWorld for DialogueStorage {
                 ],
                 lines:    vec![
                     DialogueLine::new("Pardon me. Did I miss something? What's going on?")
-                        .delay(3.0)
+                        .delay(6.0)
+                        .add_action(DialogueAction::new(0))
                         .add_action(
                             DialogueAction::new(0)
-                                .start(vec2(0.0, 0.0))
-                                .end(vec2(640.0, 0.0)),
+                                .mode(ActionMode::Scale)
+                                .start(vec2(0.1, 0.1))
+                                .end(vec2(1.0, 1.0))
+                                .ease(EaseFunction::Steps(3, JumpAt::End))
+                                .duration(6.0),
+                        )
+                        .add_action(
+                            DialogueAction::teleport(0, vec2(0.0, 0.0), OFFSCREEN).delay(6.0),
                         ),
                     DialogueLine::new("...").speed(1.0),
                     DialogueLine::new("Uh oh..."),
                     DialogueLine::new("AAAAAAIIIIEEEEEE!!"),
                 ],
             },
+        );
+
+        storage.insert(
+            DialogueId::NinjuckoIntro,
             Dialogue {
-                _id:      DialogueId::NinjuckoIntro,
                 elements: vec![
                     DialogueElement::new("sprites/ninjucko/idle.png")
                         .frames(4)
@@ -726,6 +803,8 @@ impl FromWorld for DialogueStorage {
                 ],
                 lines:    vec![],
             },
-        ])
+        );
+
+        DialogueStorage(storage)
     }
 }
