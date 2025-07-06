@@ -7,82 +7,298 @@ use bevy_text_animation::TextSimpleAnimator;
 use serde::{Deserialize, Serialize};
 
 use super::*;
-use crate::{RENDER_LAYER_OVERLAY, animation::SpriteAnimation};
+use crate::{RENDER_LAYER_OVERLAY, WINDOW_HEIGHT, WINDOW_WIDTH, animation::SpriteAnimation};
 
-// #[derive(SubStates, Clone, PartialEq, Eq, Hash, Debug, Default)]
-// #[source(InteractionState = InteractionState::Dialogue)]
-// enum DialogueState {
-//     #[default]
-//     Loading,
-//     Playing,
-//     Ending,
-// }
-
-pub fn dialogue_plugin(app: &mut App) {
-    app.add_systems(
-        Update,
-        (
-            initialize_dialogues.run_if(resource_exists_and_changed::<DialoguePreload>),
-            play_and_advance_dialogue.run_if(
-                resource_added::<DialogueCurrentId>
-                    .or(in_state(InteractionState::Dialogue).and(on_event::<InteractionAdvance>)),
-            ),
-        ),
-    )
-    .init_resource::<DialogueStorage>()
-    .init_resource::<DialoguePreload>()
-    .register_type::<DialoguePreload>()
-    .register_type::<DialogueId>();
+#[derive(SubStates, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[source(InteractionState = InteractionState::Dialogue)]
+enum DialogueState {
+    #[default]
+    Loading,
+    Playing,
+    Ending,
 }
 
-fn play_and_advance_dialogue(
+pub fn dialogue_plugin(app: &mut App) {
+    app.add_systems(Startup, spawn_cinematic_bars)
+        .add_systems(
+            Update,
+            preload_dialogues.run_if(resource_exists_and_changed::<DialoguePreload>),
+        )
+        .add_systems(
+            OnEnter(DialogueState::Loading),
+            (fetch_dialouge, cinematic_bars_in),
+        )
+        .add_systems(
+            Update,
+            wait_for_loaded_and_bars.run_if(in_state(DialogueState::Loading)),
+        )
+        .add_systems(OnEnter(DialogueState::Playing), play_dialogue)
+        .add_systems(
+            Update,
+            advance_dialogue
+                .run_if(in_state(DialogueState::Playing).and(on_event::<InteractionAdvance>)),
+        )
+        .add_systems(OnEnter(DialogueState::Ending), cinematic_bars_out)
+        .add_systems(
+            Update,
+            wait_for_bars.run_if(in_state(DialogueState::Ending)),
+        )
+        .add_event::<CinematicBarsIn>()
+        .add_event::<CinematicBarsOut>()
+        .add_sub_state::<DialogueState>()
+        .init_resource::<DialogueStorage>()
+        .init_resource::<DialoguePreload>()
+        .register_type::<DialoguePreload>()
+        .register_type::<DialogueId>();
+}
+
+#[derive(Debug, Component)]
+struct CinematicBars;
+
+#[derive(Debug, Resource)]
+struct CinematicBarsNodes {
+    in_node:  AnimationNodeIndex,
+    out_node: AnimationNodeIndex,
+}
+
+#[derive(Debug, Clone, Copy, Event)]
+struct CinematicBarsIn;
+
+#[derive(Debug, Clone, Copy, Event)]
+struct CinematicBarsOut;
+
+fn spawn_cinematic_bars(mut commands: Commands, asset_server: Res<AssetServer>) {
+    const BAR_HEIGHT: f32 = WINDOW_HEIGHT as f32 / 8.0;
+    let bar_sprite = Sprite::from_color(BLACK, vec2(WINDOW_WIDTH as f32, BAR_HEIGHT));
+
+    let bar_upper_name = Name::new("bar_upper");
+    let bar_lower_name = Name::new("bar_lower");
+    let bar_upper_target_id = AnimationTargetId::from_name(&bar_upper_name);
+    let bar_lower_target_id = AnimationTargetId::from_name(&bar_lower_name);
+
+    let bar_upper_in_y = (WINDOW_HEIGHT as f32 - BAR_HEIGHT) / 2.0;
+    let bar_lower_in_y = -bar_upper_in_y;
+    let bar_upper_out_y = bar_upper_in_y + BAR_HEIGHT;
+    let bar_lower_out_y = bar_lower_in_y - BAR_HEIGHT;
+
+    const DURATION: f32 = 3.0;
+    let domain = interval(0.0, DURATION).unwrap();
+
+    let (graph, nodes) = AnimationGraph::from_clips([
+        asset_server.add({
+            let mut clip_in = AnimationClip::default();
+            clip_in.add_curve_to_target(
+                bar_upper_target_id,
+                AnimatableCurve::new(
+                    animated_field!(Transform::translation),
+                    EasingCurve::new(
+                        vec3(0.0, bar_upper_out_y, Z_EFFECTS),
+                        vec3(0.0, bar_upper_in_y, Z_EFFECTS),
+                        EaseFunction::SmoothStep,
+                    )
+                    .reparametrize_linear(domain)
+                    .unwrap(),
+                ),
+            );
+            clip_in.add_curve_to_target(
+                bar_lower_target_id,
+                AnimatableCurve::new(
+                    animated_field!(Transform::translation),
+                    EasingCurve::new(
+                        vec3(0.0, bar_lower_out_y, Z_EFFECTS),
+                        vec3(0.0, bar_lower_in_y, Z_EFFECTS),
+                        EaseFunction::SmoothStep,
+                    )
+                    .reparametrize_linear(domain)
+                    .unwrap(),
+                ),
+            );
+            clip_in.add_event_fn(DURATION, |commands, _entity, _time, _weight| {
+                commands.send_event(CinematicBarsIn);
+            });
+            clip_in
+        }),
+        asset_server.add({
+            let mut clip_out = AnimationClip::default();
+            clip_out.add_curve_to_target(
+                bar_upper_target_id,
+                AnimatableCurve::new(
+                    animated_field!(Transform::translation),
+                    EasingCurve::new(
+                        vec3(0.0, bar_upper_in_y, Z_EFFECTS),
+                        vec3(0.0, bar_upper_out_y, Z_EFFECTS),
+                        EaseFunction::SmoothStep,
+                    )
+                    .reparametrize_linear(domain)
+                    .unwrap(),
+                ),
+            );
+            clip_out.add_curve_to_target(
+                bar_lower_target_id,
+                AnimatableCurve::new(
+                    animated_field!(Transform::translation),
+                    EasingCurve::new(
+                        vec3(0.0, bar_lower_in_y, Z_EFFECTS),
+                        vec3(0.0, bar_lower_out_y, Z_EFFECTS),
+                        EaseFunction::SmoothStep,
+                    )
+                    .reparametrize_linear(domain)
+                    .unwrap(),
+                ),
+            );
+            clip_out.add_event_fn(DURATION, |commands, _entity, _time, _weight| {
+                commands.send_event(CinematicBarsOut);
+            });
+            clip_out
+        }),
+    ]);
+
+    commands.insert_resource(CinematicBarsNodes {
+        in_node:  nodes[0],
+        out_node: nodes[1],
+    });
+
+    let root_entity = commands
+        .spawn((
+            CinematicBars,
+            AnimationPlayer::default(),
+            AnimationGraphHandle(asset_server.add(graph)),
+            Transform::default(),
+            Visibility::default(),
+            RENDER_LAYER_OVERLAY,
+        ))
+        .id();
+
+    commands.spawn((
+        bar_upper_name,
+        ChildOf(root_entity),
+        bar_sprite.clone(),
+        AnimationTarget {
+            id:     bar_upper_target_id,
+            player: root_entity,
+        },
+        Transform::from_xyz(0.0, bar_upper_out_y, Z_EFFECTS),
+        Visibility::default(),
+        RENDER_LAYER_OVERLAY,
+    ));
+
+    commands.spawn((
+        bar_lower_name,
+        ChildOf(root_entity),
+        bar_sprite,
+        AnimationTarget {
+            id:     bar_lower_target_id,
+            player: root_entity,
+        },
+        Transform::from_xyz(0.0, bar_upper_out_y, Z_EFFECTS),
+        Visibility::default(),
+        RENDER_LAYER_OVERLAY,
+    ));
+}
+
+#[derive(Debug, Component)]
+struct DialogueCurrent;
+
+fn fetch_dialouge(
     mut commands: Commands,
     current_id: Res<DialogueCurrentId>,
-    asset_server: Res<AssetServer>,
-    mut q_dialogues: Query<
-        (
-            Entity,
-            &DialogueId,
-            &DialogueInfo,
-            &mut AnimationPlayer,
-            &mut Visibility,
-        ),
-        With<DialogueRoot>,
-    >,
-    interaction_text: Single<&mut TextSimpleAnimator, With<InteractionText>>,
-    interaction_panel: Single<Entity, With<InteractionPanel>>,
-    mut line_index: Local<usize>,
+    q_dialogues: Query<(&DialogueId, Entity), With<DialogueRoot>>,
 ) {
-    let (dialogue_entity, _id, info, mut animation_player, mut visibility) = q_dialogues
-        .iter_mut()
-        .find(|(_entity, id, ..)| &current_id.0 == *id)
-        .expect("Current Dialouge should be spawned in");
+    let current_dialouge_entity = q_dialogues
+        .iter()
+        .find_map(|(id, entity)| (*id == current_id.0).then_some(entity))
+        .expect("Current dialogue should be preloaded");
 
-    if !info.loaded(asset_server) {
-        info_once!("Dialogue assets still loading");
-        return;
+    commands
+        .entity(current_dialouge_entity)
+        .insert(DialogueCurrent);
+}
+
+fn cinematic_bars_in(
+    nodes: Res<CinematicBarsNodes>,
+    mut cinematic_bars: Single<&mut AnimationPlayer, With<CinematicBars>>,
+) {
+    cinematic_bars.stop_all().play(nodes.in_node);
+}
+
+fn wait_for_loaded_and_bars(
+    mut e_reader: EventReader<CinematicBarsIn>,
+    mut dialogue_state: ResMut<NextState<DialogueState>>,
+    mut bar_animation_done: Local<bool>,
+    current_dialogue: Single<(&DialogueInfo, &mut Visibility), With<DialogueCurrent>>,
+    asset_server: Res<AssetServer>,
+) {
+    if e_reader.read().count() > 0 {
+        *bar_animation_done = true;
     }
 
+    let (dialogue_info, mut dialogue_visibility) = current_dialogue.into_inner();
+    if *bar_animation_done && dialogue_info.loaded(asset_server) {
+        *bar_animation_done = false;
+        *dialogue_visibility = Visibility::Visible;
+        dialogue_state.set(DialogueState::Playing);
+    }
+}
+
+fn play_dialogue(
+    current_dialogues: Single<(&DialogueInfo, &mut AnimationPlayer), With<DialogueCurrent>>,
+    interaction_text: Single<&mut TextSimpleAnimator, With<InteractionText>>,
+) {
+    let (info, mut animator) = current_dialogues.into_inner();
+    animator.stop_all().play(info.nodes[0]);
+    let TextAnimatorInfo { text, speed, delay } = info.texts[0];
+    *interaction_text.into_inner() = match delay {
+        Some(seconds) => TextSimpleAnimator::new(text, speed).with_wait_before(seconds),
+        None => TextSimpleAnimator::new(text, speed),
+    }
+}
+
+fn advance_dialogue(
+    current_dialogues: Single<(&DialogueInfo, &mut AnimationPlayer), With<DialogueCurrent>>,
+    interaction_text: Single<(&mut Text, &mut TextSimpleAnimator), With<InteractionText>>,
+    mut dialogue_state: ResMut<NextState<DialogueState>>,
+    mut line_index: Local<usize>,
+) {
+    *line_index += 1;
+
+    let (info, mut dialogue_animator) = current_dialogues.into_inner();
+    let (mut text, mut text_animator) = interaction_text.into_inner();
     if *line_index == info.nodes.len() {
-        // info!("Dialogue is finished");
         *line_index = 0;
-        commands.entity(dialogue_entity).despawn();
-        commands.entity(interaction_panel.into_inner()).despawn();
-        commands.set_state(InteractionState::None);
-        commands.set_state(MovementState::Enabled);
-        commands.remove_resource::<DialogueCurrentId>();
+        text.clear();
+        dialogue_state.set(DialogueState::Ending);
         return;
     }
 
     // info!("Playing animations index: {}", *line_index);
+    dialogue_animator.stop_all().play(info.nodes[*line_index]);
+    let TextAnimatorInfo { text, speed, delay } = info.texts[*line_index];
+    *text_animator = match delay {
+        Some(seconds) => TextSimpleAnimator::new(text, speed).with_wait_before(seconds),
+        None => TextSimpleAnimator::new(text, speed),
+    }
+}
 
-    *visibility = Visibility::Visible;
-    animation_player.stop_all().play(info.nodes[*line_index]);
-    let TextAnimatorInfo { text, speed } = info.texts[*line_index];
-    *interaction_text.into_inner() = TextSimpleAnimator::new(text, speed);
+fn cinematic_bars_out(
+    nodes: Res<CinematicBarsNodes>,
+    mut cinematic_bars: Single<&mut AnimationPlayer, With<CinematicBars>>,
+) {
+    cinematic_bars.stop_all().play(nodes.out_node);
+}
 
-    *line_index += 1;
-    // info!("Line index incremented: {}", *line_index);
+fn wait_for_bars(
+    mut commands: Commands,
+    mut e_reader: EventReader<CinematicBarsOut>,
+    current_dialogue: Single<Entity, With<DialogueCurrent>>,
+    interaction_panel: Single<Entity, With<InteractionPanel>>,
+) {
+    if e_reader.read().count() > 0 {
+        commands.entity(current_dialogue.into_inner()).despawn();
+        commands.entity(interaction_panel.into_inner()).despawn();
+        commands.set_state(InteractionState::None);
+        commands.set_state(MovementState::Enabled);
+        commands.remove_resource::<DialogueCurrentId>();
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, Component, PartialEq, Reflect, Serialize, Deserialize)]
@@ -148,6 +364,7 @@ impl DialogueElement {
 struct DialogueLine {
     text:    &'static str,
     speed:   f32,
+    delay:   Option<f32>,
     actions: Vec<DialogueAction>,
 }
 
@@ -156,12 +373,18 @@ impl DialogueLine {
         DialogueLine {
             text:    line,
             speed:   16.0,
+            delay:   None,
             actions: vec![],
         }
     }
 
     fn speed(mut self, speed: f32) -> Self {
         self.speed = speed;
+        self
+    }
+
+    fn delay(mut self, delay: f32) -> Self {
+        self.delay = Some(delay);
         self
     }
 
@@ -276,11 +499,12 @@ pub struct DialoguePreload(Vec<DialogueId>);
 struct TextAnimatorInfo {
     text:  &'static str,
     speed: f32,
+    delay: Option<f32>,
 }
 
 impl TextAnimatorInfo {
-    fn new(text: &'static str, speed: f32) -> Self {
-        TextAnimatorInfo { text, speed }
+    fn new(text: &'static str, speed: f32, delay: Option<f32>) -> Self {
+        TextAnimatorInfo { text, speed, delay }
     }
 }
 
@@ -289,7 +513,7 @@ struct ClipStarted;
 
 const ELEMENT_TILE_SIZE: UVec2 = UVec2::splat(64);
 
-fn initialize_dialogues(
+fn preload_dialogues(
     mut commands: Commands,
     preload: Res<DialoguePreload>,
     storage: Res<DialogueStorage>,
@@ -373,7 +597,7 @@ fn initialize_dialogues(
                     });
 
                 (
-                    TextAnimatorInfo::new(line.text, line.speed),
+                    TextAnimatorInfo::new(line.text, line.speed, line.delay),
                     asset_server.add(clip),
                 )
             })
@@ -480,12 +704,13 @@ impl FromWorld for DialogueStorage {
                     DialogueElement::new("sprites/bucko/escape.png"),
                 ],
                 lines:    vec![
-                    DialogueLine::new("").add_action(
-                        DialogueAction::new(0)
-                            .start(vec2(0.0, 0.0))
-                            .end(vec2(640.0, 0.0)),
-                    ),
-                    DialogueLine::new("Pardon me. Did I miss something? What's going on?"),
+                    DialogueLine::new("Pardon me. Did I miss something? What's going on?")
+                        .delay(3.0)
+                        .add_action(
+                            DialogueAction::new(0)
+                                .start(vec2(0.0, 0.0))
+                                .end(vec2(640.0, 0.0)),
+                        ),
                     DialogueLine::new("...").speed(1.0),
                     DialogueLine::new("Uh oh..."),
                     DialogueLine::new("AAAAAAIIIIEEEEEE!!"),
