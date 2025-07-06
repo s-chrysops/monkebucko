@@ -105,10 +105,10 @@ fn main() {
         EntropyPlugin::<WyRand>::default(),
         // avian2d::prelude::PhysicsDebugPlugin::default(),
         // bevy::dev_tools::picking_debug::DebugPickingPlugin,
-        // bevy_inspector_egui::quick::WorldInspectorPlugin::new(),
         // bevy_inspector_egui::bevy_egui::EguiPlugin {
         //     enable_multipass_for_primary_context: true,
         // },
+        // bevy_inspector_egui::quick::WorldInspectorPlugin::new(),
     ))
     .add_plugins((
         game_plugin,
@@ -174,5 +174,57 @@ fn initialize_settings(mut commands: Commands) {
 fn despawn_screen<T: Component>(to_despawn: Query<Entity, With<T>>, mut commands: Commands) {
     for entity in &to_despawn {
         commands.entity(entity).despawn();
+    }
+}
+
+use bevy::{platform::collections::HashMap, prelude::TypePath};
+use nohash_hasher::{IsEnabled, NoHashHasher};
+use std::hash::{BuildHasherDefault, Hasher};
+
+pub type BuckoNoHashHashmap<K, V> = HashMap<K, V, BuildHasherDefault<BuckoNoHashHasher<K>>>;
+pub type BuildBuckoNoHashHasher<T> = BuildHasherDefault<BuckoNoHashHasher<T>>;
+
+#[derive(Debug, Clone, Copy, Default, TypePath)]
+pub struct BuckoNoHashHasher<T>(NoHashHasher<T>);
+
+impl<T: IsEnabled> Hasher for BuckoNoHashHasher<T> {
+    fn write(&mut self, _: &[u8]) {
+        panic!("Invalid use of BuckoNoHashHasher")
+    }
+
+    fn write_u8(&mut self, n: u8) {
+        self.0.write_u8(n);
+    }
+    fn write_u16(&mut self, n: u16) {
+        self.0.write_u16(n);
+    }
+    fn write_u32(&mut self, n: u32) {
+        self.0.write_u32(n);
+    }
+    fn write_u64(&mut self, n: u64) {
+        self.0.write_u64(n);
+    }
+    fn write_usize(&mut self, n: usize) {
+        self.0.write_usize(n);
+    }
+
+    fn write_i8(&mut self, n: i8) {
+        self.0.write_i8(n);
+    }
+    fn write_i16(&mut self, n: i16) {
+        self.0.write_i16(n);
+    }
+    fn write_i32(&mut self, n: i32) {
+        self.0.write_i32(n);
+    }
+    fn write_i64(&mut self, n: i64) {
+        self.0.write_i64(n);
+    }
+    fn write_isize(&mut self, n: isize) {
+        self.0.write_isize(n);
+    }
+
+    fn finish(&self) -> u64 {
+        self.0.finish()
     }
 }
