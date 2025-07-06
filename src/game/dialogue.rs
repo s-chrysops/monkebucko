@@ -5,7 +5,6 @@ use bevy::{
     animation::{AnimationTarget, AnimationTargetId, animated_field},
     asset::LoadState,
     platform::collections::HashMap,
-    platform::collections::HashMap,
     prelude::*,
 };
 use bevy_text_animation::TextSimpleAnimator;
@@ -57,14 +56,6 @@ pub fn dialogue_plugin(app: &mut App) {
         .init_resource::<DialoguePreload>()
         .init_resource::<DialoguePreload>()
         .init_resource::<DialogueStorage>()
-        .register_type::<DialogueId>()
-        .register_type::<DialogueElement>()
-        .register_type::<DialogueLine>()
-        .register_type::<DialogueAction>()
-        .register_type::<ActionMode>()
-        .register_type::<Dialogue>()
-        .register_type::<DialogueStorage>()
-        .register_type::<DialoguePreload>();
         .register_type::<DialogueId>()
         .register_type::<DialogueElement>()
         .register_type::<DialogueLine>()
