@@ -9,7 +9,7 @@ use bevy_ecs_tiled::prelude::*;
 use bevy_ecs_tilemap::tiles::TileStorage;
 
 use super::*;
-use crate::{RENDER_LAYER_WORLD, WINDOW_HEIGHT, WINDOW_WIDTH, animation::*};
+use crate::{animation::*, CameraWorld, RENDER_LAYER_WORLD, WINDOW_HEIGHT, WINDOW_WIDTH};
 
 #[derive(Debug, Component)]
 struct OnTopDown;
@@ -68,7 +68,7 @@ fn topdown_setup(
     use bevy::render::camera::ScalingMode;
 
     commands.spawn((
-        WorldCamera,
+        CameraWorld,
         Camera2d,
         Camera {
             order: 0,
@@ -295,8 +295,8 @@ fn warp_player(
     tiled_map: Single<Entity, With<TiledMapMarker>>,
     topdown_maps: Res<TopdownMapHandles>,
     mut current_map: ResMut<CurrentMap>,
-    player: Single<(Entity, &mut Transform), (With<Player>, Without<WorldCamera>)>,
-    mut camera: Single<&mut Transform, With<WorldCamera>>,
+    player: Single<(Entity, &mut Transform), (With<Player>, Without<CameraWorld>)>,
+    mut camera: Single<&mut Transform, With<CameraWorld>>,
     mut commands: Commands,
 ) {
     let ChildOf(parent) = q_tiled_colliders
@@ -650,8 +650,8 @@ fn get_topdown_interactions(
 }
 
 fn camera_system(
-    mut camera_transform: Single<&mut Transform, With<WorldCamera>>,
-    player: Single<&Transform, (With<Player>, Without<WorldCamera>)>,
+    mut camera_transform: Single<&mut Transform, With<CameraWorld>>,
+    player: Single<&Transform, (With<Player>, Without<CameraWorld>)>,
     user_input: Res<UserInput>,
     current_map: Res<CurrentMap>,
     mut stopwatch: Local<Stopwatch>,

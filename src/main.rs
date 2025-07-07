@@ -1,7 +1,12 @@
 use avian2d::PhysicsPlugins;
 use bevy::{
+    asset::RenderAssetUsages,
     prelude::*,
-    render::{camera::CameraOutputMode, render_resource::*, view::RenderLayers},
+    render::{
+        camera::{CameraOutputMode, ImageRenderTarget, RenderTarget},
+        render_resource::*,
+        view::RenderLayers,
+    },
     window::WindowResolution,
 };
 use bevy_ecs_tiled::{
@@ -18,7 +23,10 @@ use game::game_plugin;
 use menu::menu_plugin;
 use splash::splash_plugin;
 
-use crate::auto_scaling::ScalePlugin;
+use crate::{
+    auto_scaling::ScalePlugin,
+    viewport::{ViewportNode, viewport_node_plugin},
+};
 
 mod animation;
 mod game;
@@ -26,15 +34,36 @@ mod menu;
 mod splash;
 
 mod auto_scaling;
+mod viewport;
 
 const WINDOW_WIDTH: u32 = 1280;
 const WINDOW_HEIGHT: u32 = 720;
 
-const RENDER_LAYER_WORLD: RenderLayers = RenderLayers::layer(0);
-const RENDER_LAYER_OVERLAY: RenderLayers = RenderLayers::layer(1);
+const ORDER_MAIN: isize = 2;
+const ORDER_OVERLAY: isize = 1;
+const ORDER_WORLD: isize = 0;
+
+const RENDER_LAYER_MAIN: RenderLayers = RenderLayers::layer(ORDER_MAIN as usize);
+const RENDER_LAYER_OVERLAY: RenderLayers = RenderLayers::layer(ORDER_OVERLAY as usize);
+const RENDER_LAYER_WORLD: RenderLayers = RenderLayers::layer(ORDER_WORLD as usize);
 
 #[derive(Debug, Component)]
-struct OverlayCamera;
+struct CameraMain;
+
+#[derive(Debug, Component)]
+struct CameraOverlay;
+
+#[derive(Debug, Component)]
+struct CameraWorld;
+
+#[derive(Debug, Component)]
+struct ViewportNodeOverlay;
+
+#[derive(Debug, Component)]
+struct ViewportNodeWorld;
+
+#[derive(Debug, Resource)]
+struct RenderImageWorld(ImageRenderTarget);
 
 #[derive(Debug, Resource, Serialize, Deserialize)]
 struct Settings {
@@ -104,12 +133,13 @@ fn main() {
         PhysicsPlugins::default().with_length_unit(32.0),
         EntropyPlugin::<WyRand>::default(),
         // avian2d::prelude::PhysicsDebugPlugin::default(),
-        // bevy::dev_tools::picking_debug::DebugPickingPlugin,
+        bevy::dev_tools::picking_debug::DebugPickingPlugin,
         // bevy_inspector_egui::bevy_egui::EguiPlugin {
         //     enable_multipass_for_primary_context: true,
         // },
         // bevy_inspector_egui::quick::WorldInspectorPlugin::new(),
     ))
+    .add_plugins(viewport_node_plugin)
     .add_plugins((
         game_plugin,
         menu_plugin,
@@ -117,8 +147,8 @@ fn main() {
         sprite_animations_plugin,
     ))
     .init_state::<AppState>()
-    .add_systems(Startup, (setup, initialize_settings))
-    // .insert_resource(DebugPickingMode::Normal)
+    .add_systems(Startup, (setup_cameras, initialize_settings))
+    .insert_resource(bevy::dev_tools::picking_debug::DebugPickingMode::Normal)
     .insert_resource(avian2d::prelude::Gravity::ZERO)
     .insert_resource(MeshPickingSettings {
         require_markers:     true,
@@ -127,12 +157,72 @@ fn main() {
     .run();
 }
 
-fn setup(mut commands: Commands) {
+fn setup_cameras(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let render_image_overlay: ImageRenderTarget = asset_server
+        .add({
+            let mut image = Image::new_uninit(
+                default(),
+                TextureDimension::D2,
+                TextureFormat::Bgra8UnormSrgb,
+                RenderAssetUsages::all(),
+            );
+            image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_DST
+                | TextureUsages::RENDER_ATTACHMENT;
+            image
+        })
+        .into();
+
+    let render_image_world: ImageRenderTarget = asset_server
+        .add({
+            let mut image = Image::new_uninit(
+                default(),
+                TextureDimension::D2,
+                TextureFormat::Bgra8UnormSrgb,
+                RenderAssetUsages::all(),
+            );
+            image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_DST
+                | TextureUsages::RENDER_ATTACHMENT;
+            image
+        })
+        .into();
+    commands.insert_resource(RenderImageWorld(render_image_world));
+
     use bevy::render::camera::ScalingMode;
+    let overlay_camera = commands
+        .spawn((
+            CameraOverlay,
+            Camera2d,
+            Camera {
+                order: ORDER_OVERLAY,
+                target: RenderTarget::Image(render_image_overlay),
+                clear_color: ClearColorConfig::Custom(Color::NONE),
+                output_mode: CameraOutputMode::Write {
+                    blend_state: Some(BlendState::ALPHA_BLENDING),
+                    clear_color: ClearColorConfig::None,
+                },
+                ..default()
+            },
+            auto_scaling::AspectRatio(16.0 / 9.0),
+            Projection::from(OrthographicProjection {
+                near: -1000.0,
+                scaling_mode: ScalingMode::Fixed {
+                    width:  WINDOW_WIDTH as f32,
+                    height: WINDOW_HEIGHT as f32,
+                },
+                ..OrthographicProjection::default_3d()
+            }),
+            // Msaa::Off,
+            RENDER_LAYER_OVERLAY,
+        ))
+        .id();
+
     commands.spawn((
+        CameraMain,
         Camera2d,
         Camera {
-            order: 1,
+            order: ORDER_MAIN,
             clear_color: ClearColorConfig::Custom(Color::NONE),
             output_mode: CameraOutputMode::Write {
                 blend_state: Some(BlendState::ALPHA_BLENDING),
@@ -149,8 +239,20 @@ fn setup(mut commands: Commands) {
             },
             ..OrthographicProjection::default_3d()
         }),
-        // Msaa::Off,
-        RENDER_LAYER_OVERLAY,
+        RENDER_LAYER_MAIN,
+    ));
+
+    commands.spawn((
+        ViewportNodeOverlay,
+        Node {
+            position_type: PositionType::Absolute,
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            ..default()
+        },
+        ViewportNode::new(overlay_camera),
+        ZIndex(ORDER_OVERLAY as i32),
+        RENDER_LAYER_MAIN,
     ));
 }
 

@@ -6,7 +6,7 @@ use bevy_text_animation::*;
 use serde::{Deserialize, Serialize};
 
 use super::{AppState, Settings};
-use dialogue::*;
+use dialogue::{DialogueCurrentId, DialogueId, DialoguePreload, dialogue_plugin};
 use egg::egg_plugin;
 use topdown::topdown_plugin;
 
@@ -40,9 +40,6 @@ enum MovementState {
 
 #[derive(Debug, Component)]
 struct Player;
-
-#[derive(Debug, Component)]
-struct WorldCamera;
 
 pub fn game_plugin(app: &mut App) {
     app.add_plugins((dialogue_plugin, egg_plugin, topdown_plugin))

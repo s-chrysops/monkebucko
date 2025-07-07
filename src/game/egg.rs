@@ -6,6 +6,7 @@ use bevy::{
     core_pipeline::{bloom::Bloom, tonemapping::Tonemapping},
     input::mouse::AccumulatedMouseMotion,
     prelude::*,
+    render::camera::RenderTarget,
     window::{CursorGrabMode, PrimaryWindow},
 };
 use bevy_persistent::Persistent;
@@ -13,10 +14,12 @@ use bevy_rand::prelude::*;
 use rand_core::RngCore;
 
 use crate::{
-    RENDER_LAYER_OVERLAY, RENDER_LAYER_WORLD, Settings, WINDOW_HEIGHT, WINDOW_WIDTH,
+    CameraWorld, ORDER_WORLD, RENDER_LAYER_MAIN, RENDER_LAYER_OVERLAY, RENDER_LAYER_WORLD,
+    RenderImageWorld, Settings, ViewportNodeWorld, WINDOW_HEIGHT, WINDOW_WIDTH,
     animation::{SpriteAnimation, SpriteAnimationFinished},
     auto_scaling::AspectRatio,
     despawn_screen,
+    viewport::ViewportNode,
 };
 
 use super::*;
@@ -94,22 +97,28 @@ pub fn egg_plugin(app: &mut App) {
 // #[derive(Debug, Component, Deref, DerefMut)]
 // struct Velocity(Vec3);
 
-fn spawn_player(mut commands: Commands) {
+fn spawn_player(mut commands: Commands, render_image: Res<RenderImageWorld>) {
     info!("Spawning player");
-    commands.spawn((
-        OnEggScene,
-        Player,
-        Name::new("Player"),
-        InteractTarget(None),
-        CameraSensitivity::default(),
-        Transform::from_xyz(0.0, 1.0, 0.0),
-        Visibility::default(),
-        children![(
-            WorldCamera,
+    let player = commands
+        .spawn((
+            OnEggScene,
+            Player,
+            Name::new("Player"),
+            InteractTarget(None),
+            CameraSensitivity::default(),
+            Transform::from_xyz(0.0, 1.0, 0.0),
+            Visibility::default(),
+        ))
+        .id();
+
+    let camera_egg = commands
+        .spawn((
+            CameraWorld,
             MeshPickingCamera,
             Camera3d::default(),
             Camera {
                 order: 0,
+                target: RenderTarget::Image(render_image.0.clone()),
                 hdr: true,
                 clear_color: ClearColorConfig::Custom(Color::BLACK),
                 ..default()
@@ -121,8 +130,22 @@ fn spawn_player(mut commands: Commands) {
                 ..default()
             }),
             AspectRatio(16.0 / 9.0),
+            ChildOf(player),
             RENDER_LAYER_WORLD,
-        )],
+        ))
+        .id();
+
+    commands.spawn((
+        ViewportNodeWorld,
+        Node {
+            position_type: PositionType::Absolute,
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            ..default()
+        },
+        ViewportNode::new(camera_egg),
+        ZIndex(ORDER_WORLD as i32),
+        RENDER_LAYER_MAIN,
     ));
 }
 
@@ -260,7 +283,8 @@ fn spawn_world(
             Transform::from_xyz(0.3, 1.4, 1.525),
             PICKABLE,
             EntityInteraction::Text(
-                "Through eons of void, these photons birth from fusion, lay to rest in you.".to_string(),
+                "Through eons of void, these photons birth from fusion, lay to rest in you."
+                    .to_string(),
             ),
         ))
         .observe(over_interactables)

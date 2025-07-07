@@ -728,7 +728,7 @@ fn add_action_to_clip(
         ),
     };
 
-    clip.add_event_to_target(element_target_id, 0.0, ClipStarted);
+    clip.add_event_to_target(element_target_id, action.delay, ClipStarted);
     clip.add_event_to_target(element_target_id, action.duration, ClipEnded);
 
     clip
@@ -763,6 +763,10 @@ impl FromWorld for DialogueStorage {
                         .frames(16)
                         .fps(16)
                         .looping(),
+                    DialogueElement::new("sprites/bucko/grow.png")
+                        .custom_size(Vec2::splat(SCENE_AREA_HEIGHT))
+                        .frames(18)
+                        .fps(16),
                     DialogueElement::new("sprites/ucko/group.png"),
                     DialogueElement::new("sprites/bucko/bones_1.png"),
                     DialogueElement::new("sprites/bucko/bones_2.png"),
@@ -770,7 +774,7 @@ impl FromWorld for DialogueStorage {
                 ],
                 lines:    vec![
                     DialogueLine::new("Pardon me. Did I miss something? What's going on?")
-                        .delay(6.0)
+                        .delay(7.5)
                         .add_action(DialogueAction::new(0))
                         .add_action(
                             DialogueAction::new(0)
@@ -780,9 +784,8 @@ impl FromWorld for DialogueStorage {
                                 .ease(EaseFunction::Steps(3, JumpAt::End))
                                 .duration(6.0),
                         )
-                        .add_action(
-                            DialogueAction::teleport(0, vec2(0.0, 0.0), OFFSCREEN).delay(6.0),
-                        ),
+                        .add_action(DialogueAction::teleport(0, Vec2::ZERO, OFFSCREEN).delay(6.5))
+                        .add_action(DialogueAction::teleport(1, OFFSCREEN, Vec2::ZERO).delay(6.5)),
                     DialogueLine::new("...").speed(1.0),
                     DialogueLine::new("Uh oh..."),
                     DialogueLine::new("AAAAAAIIIIEEEEEE!!"),
