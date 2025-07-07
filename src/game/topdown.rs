@@ -81,8 +81,8 @@ fn topdown_setup(
             OrthographicProjection {
                 near: -1000.0,
                 scaling_mode: ScalingMode::Fixed {
-                    width:  WINDOW_WIDTH as f32,
-                    height: WINDOW_HEIGHT as f32,
+                    width:  WINDOW_WIDTH,
+                    height: WINDOW_HEIGHT,
                 },
                 ..OrthographicProjection::default_3d()
             }
@@ -658,7 +658,7 @@ fn camera_system(
     mut target_direction: Local<Vec2>,
     time: Res<Time>,
 ) {
-    const WINDOW_SIZE: Vec2 = Vec2::new(WINDOW_WIDTH as f32, WINDOW_HEIGHT as f32);
+    const WINDOW_SIZE: Vec2 = Vec2::new(WINDOW_WIDTH, WINDOW_HEIGHT);
     // Needed for correction caused by origin being in the center of the bottom-left-most tile
     const HALF_TILE_SIZE: f32 = 16.0;
     // Percentage of the view size the camera will target

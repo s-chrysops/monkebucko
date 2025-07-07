@@ -1019,7 +1019,7 @@ fn setup_camera_movements(
         Fade,
         Sprite::from_color(
             WHITE.with_alpha(0.0),
-            vec2(WINDOW_WIDTH as f32, WINDOW_HEIGHT as f32),
+            vec2(WINDOW_WIDTH, WINDOW_HEIGHT),
         ),
         Opacity(0.0),
         AnimationTarget {

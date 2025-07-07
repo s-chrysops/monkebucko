@@ -27,8 +27,8 @@ mod splash;
 
 mod auto_scaling;
 
-const WINDOW_WIDTH: u32 = 1280;
-const WINDOW_HEIGHT: u32 = 720;
+const WINDOW_WIDTH: f32 = 1280.0;
+const WINDOW_HEIGHT: f32 = 720.0;
 
 const RENDER_LAYER_WORLD: RenderLayers = RenderLayers::layer(0);
 const RENDER_LAYER_OVERLAY: RenderLayers = RenderLayers::layer(1);
@@ -81,7 +81,7 @@ fn main() {
         DefaultPlugins
             .set(WindowPlugin {
                 primary_window: Some(Window {
-                    resolution: WindowResolution::new(WINDOW_WIDTH as f32, WINDOW_HEIGHT as f32),
+                    resolution: WindowResolution::new(WINDOW_WIDTH, WINDOW_HEIGHT),
                     prevent_default_event_handling: false,
                     ..default()
                 }),
@@ -144,8 +144,8 @@ fn setup(mut commands: Commands) {
         Projection::from(OrthographicProjection {
             near: -1000.0,
             scaling_mode: ScalingMode::Fixed {
-                width:  WINDOW_WIDTH as f32,
-                height: WINDOW_HEIGHT as f32,
+                width:  WINDOW_WIDTH,
+                height: WINDOW_HEIGHT,
             },
             ..OrthographicProjection::default_3d()
         }),
