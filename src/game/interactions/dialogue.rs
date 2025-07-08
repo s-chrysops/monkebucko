@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use super::*;
 use crate::{
-    BuckoNoHashHashmap, BuildBuckoNoHashHasher, RENDER_LAYER_OVERLAY, WINDOW_HEIGHT, WINDOW_WIDTH,
+    BuildBuckoNoHashHasher, EnumMap, RENDER_LAYER_OVERLAY, WINDOW_HEIGHT, WINDOW_WIDTH,
     animation::SpriteAnimation, game::topdown::PlayerSpawnLocation,
 };
 
@@ -268,7 +268,7 @@ fn play_dialogue(
     interaction_text: Single<&mut TextSimpleAnimator, With<InteractionText>>,
 ) {
     let (info, mut animator) = current_dialogues.into_inner();
-    animator.stop_all().play(info.nodes[0]);
+    animator.play(info.nodes[0]);
     let TextAnimatorInfo { text, speed, delay } = info.texts[0];
     *interaction_text.into_inner() = match delay {
         Some(seconds) => TextSimpleAnimator::new(text, speed).with_wait_before(seconds),
@@ -286,7 +286,9 @@ fn advance_dialogue(
 
     let (info, mut dialogue_animator) = current_dialogues.into_inner();
     let (mut text, mut text_animator) = interaction_text.into_inner();
+
     if *line_index == info.nodes.len() {
+        // Dialogue is finished
         *line_index = 0;
         text.clear();
         dialogue_state.set(DialogueState::Ending);
@@ -294,7 +296,7 @@ fn advance_dialogue(
     }
 
     if !dialogue_animator.all_finished() {
-        dialogue_animator.adjust_speeds(100.0);
+        dialogue_animator.adjust_speeds(256.0);
         return;
     }
 
@@ -757,14 +759,14 @@ fn add_action_to_clip(
 
 #[derive(Debug, Deref, Resource, Reflect)]
 #[reflect(Resource)]
-struct DialogueStorage(BuckoNoHashHashmap<DialogueId, Dialogue>);
+struct DialogueStorage(EnumMap<DialogueId, Dialogue>);
 
 impl FromWorld for DialogueStorage {
     fn from_world(_world: &mut World) -> Self {
         const SCENE_AREA_HEIGHT: f32 = 540.0;
         const OFFSCREEN: Vec2 = Vec2::splat(-2000.0);
 
-        let mut storage: BuckoNoHashHashmap<DialogueId, Dialogue> =
+        let mut storage: EnumMap<DialogueId, Dialogue> =
             HashMap::with_hasher(BuildBuckoNoHashHasher::default());
 
         storage.insert(

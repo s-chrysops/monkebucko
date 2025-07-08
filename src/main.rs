@@ -181,7 +181,7 @@ use bevy::{platform::collections::HashMap, prelude::TypePath};
 use nohash_hasher::{IsEnabled, NoHashHasher};
 use std::hash::{BuildHasherDefault, Hasher};
 
-pub type BuckoNoHashHashmap<K, V> = HashMap<K, V, BuildHasherDefault<BuckoNoHashHasher<K>>>;
+pub type EnumMap<K, V> = HashMap<K, V, BuildHasherDefault<BuckoNoHashHasher<K>>>;
 pub type BuildBuckoNoHashHasher<T> = BuildHasherDefault<BuckoNoHashHasher<T>>;
 
 #[derive(Debug, Clone, Copy, Default, TypePath)]
@@ -192,39 +192,13 @@ impl<T: IsEnabled> Hasher for BuckoNoHashHasher<T> {
         panic!("Invalid use of BuckoNoHashHasher")
     }
 
-    fn write_u8(&mut self, n: u8) {
-        self.0.write_u8(n);
-    }
-    fn write_u16(&mut self, n: u16) {
-        self.0.write_u16(n);
-    }
-    fn write_u32(&mut self, n: u32) {
-        self.0.write_u32(n);
-    }
-    fn write_u64(&mut self, n: u64) {
-        self.0.write_u64(n);
-    }
     fn write_usize(&mut self, n: usize) {
         self.0.write_usize(n);
-    }
-
-    fn write_i8(&mut self, n: i8) {
-        self.0.write_i8(n);
-    }
-    fn write_i16(&mut self, n: i16) {
-        self.0.write_i16(n);
-    }
-    fn write_i32(&mut self, n: i32) {
-        self.0.write_i32(n);
-    }
-    fn write_i64(&mut self, n: i64) {
-        self.0.write_i64(n);
-    }
-    fn write_isize(&mut self, n: isize) {
-        self.0.write_isize(n);
     }
 
     fn finish(&self) -> u64 {
         self.0.finish()
     }
 }
+// #[derive(Debug, Deref, DerefMut, Clone, Default, Reflect)]
+// pub struct EnumMap<K, V>(HashMap<K, V, nohash_hasher::BuildNoHashHasher<K>>);

@@ -9,7 +9,12 @@ use bevy_ecs_tiled::prelude::*;
 use bevy_ecs_tilemap::tiles::TileStorage;
 
 use super::*;
-use crate::{RENDER_LAYER_WORLD, WINDOW_HEIGHT, WINDOW_WIDTH, animation::*, despawn_screen};
+use crate::{
+    RENDER_LAYER_WORLD, WINDOW_HEIGHT, WINDOW_WIDTH,
+    animation::*,
+    despawn_screen,
+    game::interactions::{dialogue::DialoguePreload, *},
+};
 
 #[derive(Debug, Component)]
 struct OnTopDown;
@@ -381,7 +386,7 @@ fn setup_player(
         .spawn((
             OnTopDown,
             Player,
-            InteractTarget(None),
+            InteractTarget::default(),
             //
             Transform::from_translation(last_location.0),
             Visibility::default(),
@@ -596,40 +601,49 @@ fn player_submerged(player_submerged: Single<&Submerged, With<Player>>) -> bool 
 
 fn update_near_interactables(
     q_interactables: Query<(Entity, &Transform), (With<EntityInteraction>, Without<Player>)>,
-    player: Single<(&mut InteractTarget, &Transform), With<Player>>,
+    player: Single<(&mut InteractTarget, &Transform), (With<Player>, Changed<Transform>)>,
 ) {
-    const INTERACTION_RANGE: f32 = 32.0;
-    let range_squared = INTERACTION_RANGE.powi(2);
+    const INTERACTION_RANGE: u32 = 32; // u32 to get a consistent value after squaring
+    const RANGE_SQUARED: f32 = INTERACTION_RANGE.pow(2) as f32;
 
-    let (mut target, player_transform) = player.into_inner();
+    let (mut interaction_target, player_transform) = player.into_inner();
     let player_position = player_transform.translation.truncate();
-    target.0 = q_interactables
-        .iter()
-        .find_map(|(entity, interactable_transform)| {
-            let interactable_position = interactable_transform.translation.truncate();
-            (interactable_position.distance_squared(player_position) < range_squared)
-                .then_some(entity)
-        });
+
+    let new_interaction_target =
+        q_interactables
+            .iter()
+            .find_map(|(entity, interactable_transform)| {
+                let interactable_position = interactable_transform.translation.truncate();
+                let entity_in_range =
+                    interactable_position.distance_squared(player_position) < RANGE_SQUARED;
+
+                entity_in_range.then_some(entity)
+            });
+
+    match new_interaction_target {
+        Some(entity) => interaction_target.set(entity),
+        None => interaction_target.clear(),
+    }
 }
 
 fn _over_interactables(
     over: Trigger<Pointer<Over>>,
     q_interactables: Query<Entity, With<EntityInteraction>>,
-    mut player: Single<&mut InteractTarget, With<Player>>,
+    mut interaction_target: Single<&mut InteractTarget, With<Player>>,
 ) {
     info!("OVER");
     if let Ok(target_entity) = q_interactables.get(over.target()) {
-        player.0 = Some(target_entity);
+        interaction_target.set(target_entity);
     }
 }
 
 fn _out_interactables(
     out: Trigger<Pointer<Out>>,
     q_interactables: Query<Entity, With<EntityInteraction>>,
-    mut player: Single<&mut InteractTarget, With<Player>>,
+    mut interaction_target: Single<&mut InteractTarget, With<Player>>,
 ) {
     if let Ok(_target_entity) = q_interactables.get(out.target()) {
-        player.0 = None;
+        interaction_target.clear();
     }
 }
 
@@ -639,11 +653,11 @@ fn get_topdown_interactions(
 ) -> Option<EntityInteraction> {
     // const INTERACTION_RANGE: f32 = 32.0;
 
-    let (InteractTarget(target_entity), _player_transform) = player.into_inner();
-    let target_entity = (*target_entity)?;
+    let (interaction_target, _player_transform) = player.into_inner();
+    let target_entity = interaction_target.as_ref()?;
 
     let (mut entity_interaction, _target_transform) =
-        q_interactables.get_inner(target_entity).ok()?;
+        q_interactables.get_inner(*target_entity).ok()?;
 
     // let player_in_range = player_transform
     //     .translation

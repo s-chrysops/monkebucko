@@ -17,6 +17,7 @@ use crate::{
     animation::{SpriteAnimation, SpriteAnimationFinished},
     auto_scaling::AspectRatio,
     despawn_screen,
+    game::interactions::*,
 };
 
 use super::*;
@@ -100,7 +101,7 @@ fn spawn_player(mut commands: Commands) {
         OnEggScene,
         Player,
         Name::new("Player"),
-        InteractTarget(None),
+        InteractTarget::default(),
         CameraSensitivity::default(),
         Transform::from_xyz(0.0, 1.0, 0.0),
         Visibility::default(),
@@ -260,7 +261,8 @@ fn spawn_world(
             Transform::from_xyz(0.3, 1.4, 1.525),
             PICKABLE,
             EntityInteraction::Text(
-                "Through eons of void, these photons birth from fusion, lay to rest in you.".to_string(),
+                "Through eons of void, these photons birth from fusion, lay to rest in you."
+                    .to_string(),
             ),
         ))
         .observe(over_interactables)
@@ -1017,10 +1019,7 @@ fn setup_camera_movements(
 
     commands.spawn((
         Fade,
-        Sprite::from_color(
-            WHITE.with_alpha(0.0),
-            vec2(WINDOW_WIDTH, WINDOW_HEIGHT),
-        ),
+        Sprite::from_color(WHITE.with_alpha(0.0), vec2(WINDOW_WIDTH, WINDOW_HEIGHT)),
         Opacity(0.0),
         AnimationTarget {
             id:     fade_target_id,
@@ -1395,12 +1394,12 @@ fn update_crack(
 fn over_interactables(
     over: Trigger<Pointer<Over>>,
     q_interactables: Query<Entity, With<EntityInteraction>>,
-    player: Single<&mut InteractTarget, With<Player>>,
+    mut interaction_target: Single<&mut InteractTarget, With<Player>>,
 ) {
     // info!("Hovering");
     if let Ok(target_entity) = q_interactables.get(over.target()) {
         // info!("Over Target: {}", target_entity);
-        *player.into_inner() = InteractTarget(Some(target_entity));
+        interaction_target.set(target_entity);
     }
     // let depth = over.event().event.hit.depth;
     // info!(depth);
@@ -1409,12 +1408,12 @@ fn over_interactables(
 fn out_interactables(
     out: Trigger<Pointer<Out>>,
     q_interactables: Query<Entity, With<EntityInteraction>>,
-    player: Single<&mut InteractTarget, With<Player>>,
+    mut interaction_target: Single<&mut InteractTarget, With<Player>>,
 ) {
     // info!("Not Hovering");
     if let Ok(_target_entity) = q_interactables.get(out.target()) {
         // info!("Out Target: {}", target_entity);
-        *player.into_inner() = InteractTarget(None);
+        interaction_target.clear();
     }
 }
 
@@ -1424,10 +1423,10 @@ fn get_egg_interactions(
 ) -> Option<EntityInteraction> {
     const INTERACTION_RANGE: f32 = 1.0;
 
-    let (InteractTarget(target_entity), player_transform) = player.into_inner();
-    let target_entity = (*target_entity)?;
+    let (interact_target, player_transform) = player.into_inner();
+    let target_entity = interact_target.as_ref()?;
 
-    let (entity_interaction, target_transform) = q_interactables.get_inner(target_entity).ok()?;
+    let (entity_interaction, target_transform) = q_interactables.get_inner(*target_entity).ok()?;
 
     let player_in_range = player_transform
         .translation
