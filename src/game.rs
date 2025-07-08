@@ -7,10 +7,14 @@ use serde::{Deserialize, Serialize};
 
 use super::{AppState, Settings};
 use dialogue::*;
+
+mod dialogue;
+
+use bones::bones_plugin;
 use egg::egg_plugin;
 use topdown::topdown_plugin;
 
-mod dialogue;
+mod bones;
 mod egg;
 mod topdown;
 
@@ -29,6 +33,7 @@ enum GameState {
     Loading,
     Egg,
     TopDown,
+    Bones,
 }
 
 #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
@@ -45,7 +50,7 @@ struct Player;
 struct WorldCamera;
 
 pub fn game_plugin(app: &mut App) {
-    app.add_plugins((dialogue_plugin, egg_plugin, topdown_plugin))
+    app.add_plugins((bones_plugin, dialogue_plugin, egg_plugin, topdown_plugin))
         .add_systems(OnEnter(AppState::Game), game_setup)
         .add_systems(PreUpdate, get_user_input)
         .add_systems(
@@ -58,11 +63,6 @@ pub fn game_plugin(app: &mut App) {
                 update_fade,
             ),
         )
-        // .add_systems(
-        //     Update,
-        //     (|state: Res<State<MovementState>>| info!("{:?}", **state))
-        //         .run_if(state_changed::<MovementState>),
-        // )
         .add_event::<InteractionAdvance>()
         .init_resource::<UserInput>()
         .init_state::<GameState>()
@@ -215,7 +215,7 @@ fn advance_text_interaction(
 ) {
     // Skip playing text animation
     let (mut animator, mut text) = interaction_text.into_inner();
-    if animator.is_playing() {
+    if animator.is_playing() || animator.is_waiting() {
         text.0 = animator.text.clone();
         animator.stop();
         return;

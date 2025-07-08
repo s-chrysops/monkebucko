@@ -9,7 +9,7 @@ use bevy_ecs_tiled::prelude::*;
 use bevy_ecs_tilemap::tiles::TileStorage;
 
 use super::*;
-use crate::{RENDER_LAYER_WORLD, WINDOW_HEIGHT, WINDOW_WIDTH, animation::*};
+use crate::{RENDER_LAYER_WORLD, WINDOW_HEIGHT, WINDOW_WIDTH, animation::*, despawn_screen};
 
 #[derive(Debug, Component)]
 struct OnTopDown;
@@ -22,12 +22,15 @@ pub fn topdown_plugin(app: &mut App) {
         },
         fade_from_egg,
     )
-    .add_systems(OnEnter(GameState::TopDown), (spawn_player, topdown_setup))
+    .add_systems(
+        OnEnter(GameState::TopDown),
+        (setup_camera, setup_map, setup_player),
+    )
     .add_systems(
         Update,
         (
             camera_system,
-            detect_interactables,
+            update_near_interactables,
             update_player_submerged,
             update_player_z,
             wait_for_fade,
@@ -47,27 +50,26 @@ pub fn topdown_plugin(app: &mut App) {
             .run_if(in_state(GameState::TopDown))
             .run_if(in_state(MovementState::Enabled)),
     )
+    .add_systems(
+        OnExit(GameState::TopDown),
+        (despawn_screen::<OnTopDown>, reset_current_map),
+    )
     .add_observer(setup_current_map)
+    .init_resource::<CurrentMap>()
+    .init_resource::<PlayerSpawnLocation>()
+    .init_resource::<TopdownMapHandles>()
     .register_type::<HopState>()
     .register_type::<Submerged>()
     .register_type::<WaterTile>()
-    .register_type::<Warp>()
-    .init_resource::<CurrentMap>()
-    .init_resource::<LastPlayerLocation>()
-    .init_resource::<TopdownMapHandles>();
+    .register_type::<Warp>();
 }
 
-fn topdown_setup(
-    mut commands: Commands,
-    // asset_server: Res<AssetServer>,
-    last_player_location: Res<LastPlayerLocation>,
-    topdown_maps: Res<TopdownMapHandles>,
-    current_map: Res<CurrentMap>,
-) {
+fn setup_camera(mut commands: Commands, last_player_location: Res<PlayerSpawnLocation>) {
     use crate::auto_scaling::AspectRatio;
     use bevy::render::camera::ScalingMode;
 
     commands.spawn((
+        OnTopDown,
         WorldCamera,
         Camera2d,
         Camera {
@@ -89,9 +91,16 @@ fn topdown_setup(
         }),
         RENDER_LAYER_WORLD,
     ));
+}
 
+fn setup_map(
+    mut commands: Commands,
+    topdown_maps: Res<TopdownMapHandles>,
+    current_map: Res<CurrentMap>,
+) {
     commands
         .spawn(TiledMapHandle(topdown_maps[current_map.index].clone_weak()))
+        .insert(OnTopDown)
         .observe(setup_collider_bodies)
         .observe(setup_interactables);
 }
@@ -106,6 +115,10 @@ struct CurrentMap {
 
     entity:      Option<Entity>,
     water_layer: Option<Entity>,
+}
+
+fn reset_current_map(mut current_map: ResMut<CurrentMap>) {
+    *current_map = CurrentMap::default()
 }
 
 const Z_BETWEEN_LAYERS: f32 = 100.0;
@@ -217,6 +230,7 @@ fn fade_from_egg(
     animation_player.play(animation_node);
 
     commands.entity(fade_entity).insert((
+        OnTopDown,
         animation_player,
         AnimationGraphHandle(animation_graph_handle),
         AnimationTarget {
@@ -340,28 +354,28 @@ fn warp_player(
     commands.entity(*tiled_map).despawn();
     commands
         .spawn(TiledMapHandle(target_map_handle))
+        .insert(OnTopDown)
         .observe(setup_collider_bodies);
 }
 
 #[derive(Debug, Deref, DerefMut, Resource)]
-struct LastPlayerLocation(Vec3);
+pub struct PlayerSpawnLocation(pub Vec3);
 
-impl Default for LastPlayerLocation {
+impl Default for PlayerSpawnLocation {
     fn default() -> Self {
         const FIRST_SPAWN: Vec3 = vec3(832.0, 1024.0, 0.0);
-        LastPlayerLocation(FIRST_SPAWN)
+        PlayerSpawnLocation(FIRST_SPAWN)
     }
 }
 
-fn spawn_player(
+fn setup_player(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    last_location: Res<LastPlayerLocation>,
-    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
+    last_location: Res<PlayerSpawnLocation>,
 ) {
     let player_sprites: Handle<Image> = asset_server.load("sprites/bucko_bounce.png");
     let layout = TextureAtlasLayout::from_grid(UVec2::splat(32), 8, 3, None, None);
-    let texture_atlas_layout = texture_atlas_layouts.add(layout);
+    let texture_atlas_layout = asset_server.add(layout);
 
     commands
         .spawn((
@@ -580,7 +594,7 @@ fn player_submerged(player_submerged: Single<&Submerged, With<Player>>) -> bool 
     player_submerged.0
 }
 
-fn detect_interactables(
+fn update_near_interactables(
     q_interactables: Query<(Entity, &Transform), (With<EntityInteraction>, Without<Player>)>,
     player: Single<(&mut InteractTarget, &Transform), With<Player>>,
 ) {

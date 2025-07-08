@@ -1,9 +1,10 @@
 use nohash_hasher::IsEnabled;
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 
 use bevy::{
     animation::{AnimationTarget, AnimationTargetId, animated_field},
     asset::LoadState,
+    // ecs::system::SystemId,
     platform::collections::HashMap,
     prelude::*,
 };
@@ -13,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use super::*;
 use crate::{
     BuckoNoHashHashmap, BuildBuckoNoHashHasher, RENDER_LAYER_OVERLAY, WINDOW_HEIGHT, WINDOW_WIDTH,
-    animation::SpriteAnimation,
+    animation::SpriteAnimation, game::topdown::PlayerSpawnLocation,
 };
 
 #[derive(SubStates, Clone, PartialEq, Eq, Hash, Debug, Default)]
@@ -45,10 +46,14 @@ pub fn dialogue_plugin(app: &mut App) {
             advance_dialogue
                 .run_if(in_state(DialogueState::Playing).and(on_event::<InteractionAdvance>)),
         )
-        .add_systems(OnEnter(DialogueState::Ending), cinematic_bars_out)
+        .add_systems(
+            OnEnter(DialogueState::Ending),
+            (post_dialogue, cinematic_bars_out).chain(),
+        )
         .add_systems(
             Update,
-            wait_for_bars.run_if(in_state(DialogueState::Ending)),
+            conclude_dialogue
+                .run_if(in_state(DialogueState::Ending).and(on_event::<CinematicBarsOut>)),
         )
         .add_event::<CinematicBarsIn>()
         .add_event::<CinematicBarsOut>()
@@ -224,7 +229,7 @@ fn fetch_dialouge(
         .iter()
         .find_map(|(id, entity)| (*id == current_id.0).then_some(entity))
         .unwrap_or_else(|| {
-            load_dialogue(commands.reborrow(), &storage, &asset_server, &current_id)
+            load_dialogue(commands.reborrow(), &storage, &asset_server, current_id.0)
         });
 
     commands
@@ -288,12 +293,31 @@ fn advance_dialogue(
         return;
     }
 
+    if !dialogue_animator.all_finished() {
+        dialogue_animator.adjust_speeds(100.0);
+        return;
+    }
+
     // info!("Playing animations index: {}", *line_index);
     dialogue_animator.stop_all().play(info.nodes[*line_index]);
     let TextAnimatorInfo { text, speed, delay } = info.texts[*line_index];
     *text_animator = match delay {
         Some(seconds) => TextSimpleAnimator::new(text, speed).with_wait_before(seconds),
         None => TextSimpleAnimator::new(text, speed),
+    }
+}
+
+fn post_dialogue(mut commands: Commands, current_dialogue: Res<DialogueCurrentId>) {
+    match current_dialogue.0 {
+        DialogueId::UckoIntro => {
+            commands.set_state(GameState::Bones);
+            commands.insert_resource(PlayerSpawnLocation(vec3(1280.0, 128.0, 1.0)));
+        }
+        DialogueId::WizuckoWin => {
+            commands.set_state(DialogueState::Loading);
+            commands.insert_resource(DialogueCurrentId(DialogueId::WizuckoIntro));
+        }
+        _ => {}
     }
 }
 
@@ -304,19 +328,16 @@ fn cinematic_bars_out(
     cinematic_bars.stop_all().play(nodes.out_node);
 }
 
-fn wait_for_bars(
+fn conclude_dialogue(
     mut commands: Commands,
-    mut e_reader: EventReader<CinematicBarsOut>,
     current_dialogue: Single<Entity, With<DialogueCurrent>>,
     interaction_panel: Single<Entity, With<InteractionPanel>>,
 ) {
-    if e_reader.read().count() > 0 {
-        commands.entity(current_dialogue.into_inner()).despawn();
-        commands.entity(interaction_panel.into_inner()).despawn();
-        commands.set_state(InteractionState::None);
-        commands.set_state(MovementState::Enabled);
-        commands.remove_resource::<DialogueCurrentId>();
-    }
+    commands.entity(current_dialogue.into_inner()).despawn();
+    commands.entity(interaction_panel.into_inner()).despawn();
+    commands.set_state(InteractionState::None);
+    commands.set_state(MovementState::Enabled);
+    commands.remove_resource::<DialogueCurrentId>();
 }
 
 #[derive(
@@ -333,7 +354,7 @@ pub enum DialogueId {
 }
 
 impl Hash for DialogueId {
-    fn hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
+    fn hash<H: Hasher>(&self, hasher: &mut H) {
         hasher.write_usize(*self as usize);
     }
 }
@@ -550,23 +571,23 @@ const ELEMENT_TILE_SIZE: UVec2 = UVec2::splat(64);
 
 fn preload_dialogues(
     mut commands: Commands,
-    preload: Res<DialoguePreload>,
+    mut preload: ResMut<DialoguePreload>,
     storage: Res<DialogueStorage>,
     asset_server: Res<AssetServer>,
 ) {
-    preload.iter().for_each(|id| {
+    preload.drain(..).for_each(|id| {
         load_dialogue(commands.reborrow(), &storage, &asset_server, id);
-    });
+    })
 }
 
 fn load_dialogue(
-    mut commands: Commands<'_, '_>,
+    mut commands: Commands,
     storage: &Res<'_, DialogueStorage>,
     asset_server: &Res<'_, AssetServer>,
-    id: &DialogueId,
+    id: DialogueId,
 ) -> Entity {
     let dialogue = storage
-        .get(id)
+        .get(&id)
         .expect("Dialogue storage should have entries for every Id");
 
     info!("Loading Dialogue: {:?}", id);
@@ -574,7 +595,7 @@ fn load_dialogue(
     let root_entity = commands
         .spawn((
             DialogueRoot,
-            *id,
+            id,
             AnimationPlayer::default(),
             Transform::default(),
             Visibility::Hidden,
@@ -809,3 +830,22 @@ impl FromWorld for DialogueStorage {
         DialogueStorage(storage)
     }
 }
+
+// #[derive(Debug, Deref, Resource)]
+// struct DialogueFinishedSystems(BuckoNoHashHashmap<DialogueId, SystemId>);
+
+// impl FromWorld for DialogueFinishedSystems {
+//     fn from_world(world: &mut World) -> Self {
+//         let mut systems: BuckoNoHashHashmap<DialogueId, SystemId> =
+//             HashMap::with_hasher(BuildBuckoNoHashHasher::default());
+
+//         systems.insert(
+//             DialogueId::UckoIntro,
+//             world.register_system(|mut commands: Commands| {
+//                 commands.set_state(GameState::Loading);
+//             }),
+//         );
+
+//         DialogueFinishedSystems(systems)
+//     }
+// }
