@@ -3418,7 +3418,7 @@ dependencies = [
 
 [[package]]
 name = "monkebucko"
-version = "0.5.2"
+version = "0.5.6"
 dependencies = [
  "avian2d",
  "bevy",
@@ -3432,6 +3432,7 @@ dependencies = [
  "nohash-hasher",
  "rand_core 0.9.3",
  "serde",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
