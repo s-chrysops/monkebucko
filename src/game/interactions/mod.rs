@@ -5,15 +5,16 @@ use serde::{Deserialize, Serialize};
 
 use super::*;
 use dialogue::*;
+use monologue::*;
 
 pub mod dialogue;
+pub mod monologue;
 
 #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
 pub enum InteractionState {
     #[default]
     None,
     Text,
-    Monologue,
     Dialogue,
 }
 
@@ -30,8 +31,12 @@ pub fn interactions_plugin(app: &mut App) {
         )
         .add_event::<InteractionAdvance>()
         .init_state::<InteractionState>()
+        .init_resource::<MonologueServer>()
         .register_type::<EntityInteraction>()
-        .register_type::<InteractTarget>();
+        .register_type::<InteractTarget>()
+        .register_type::<Monologue>()
+        .register_type::<MonologueId>()
+        .register_type::<MonologueServer>();
 }
 
 #[derive(Debug, Event)]
@@ -56,7 +61,7 @@ impl InteractTarget {
 #[reflect(Component, Serialize, Deserialize)]
 pub enum EntityInteraction {
     Text(String),
-    Monologue,
+    Monologue(MonologueId),
     Dialogue(DialogueId),
     Special(Entity),
 }
@@ -80,6 +85,7 @@ impl SpecialInteraction {
 pub fn play_interactions(
     In(input): In<Option<EntityInteraction>>,
     special_interactions: Query<&SpecialInteraction, With<EntityInteraction>>,
+    mut monologue_server: ResMut<MonologueServer>,
     mut commands: Commands,
 ) {
     const CLEAR: f32 = 0.0;
@@ -98,8 +104,12 @@ pub fn play_interactions(
                 .spawn(interaction_panel(OPACITY_75))
                 .with_child(interaction_text(&text));
         }
-        EntityInteraction::Monologue => {
-            commands.set_state(InteractionState::Monologue);
+        EntityInteraction::Monologue(id) => {
+            let text = monologue_server.next_line(&id);
+            commands.set_state(InteractionState::Text);
+            commands
+                .spawn(interaction_panel(OPACITY_75))
+                .with_child(interaction_text(text));
         }
         EntityInteraction::Dialogue(id) => {
             if id == DialogueId::None {
