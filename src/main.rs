@@ -1,5 +1,6 @@
 use avian2d::PhysicsPlugins;
 use bevy::{
+    asset::{AssetLoader, LoadContext, io::Reader},
     prelude::*,
     render::{camera::CameraOutputMode, render_resource::*, view::RenderLayers},
     window::WindowResolution,
@@ -116,6 +117,8 @@ fn main() {
         splash_plugin,
         sprite_animations_plugin,
     ))
+    .init_asset::<Blob>()
+    .init_asset_loader::<BlobAssetLoader>()
     .init_state::<AppState>()
     .add_systems(Startup, (setup, initialize_settings))
     // .insert_resource(DebugPickingMode::Normal)
@@ -202,3 +205,41 @@ impl<T: IsEnabled> Hasher for BuckoNoHashHasher<T> {
 }
 // #[derive(Debug, Deref, DerefMut, Clone, Default, Reflect)]
 // pub struct EnumMap<K, V>(HashMap<K, V, nohash_hasher::BuildNoHashHasher<K>>);
+
+use thiserror::Error;
+
+#[derive(Asset, TypePath, Debug)]
+struct Blob {
+    bytes: Vec<u8>,
+}
+
+#[derive(Default)]
+struct BlobAssetLoader;
+
+/// Possible errors that can be produced by [`BlobAssetLoader`]
+#[non_exhaustive]
+#[derive(Debug, Error)]
+enum BlobAssetLoaderError {
+    /// An [IO](std::io) Error
+    #[error("Could not load file: {0}")]
+    Io(#[from] std::io::Error),
+}
+
+impl AssetLoader for BlobAssetLoader {
+    type Asset = Blob;
+    type Settings = ();
+    type Error = BlobAssetLoaderError;
+
+    async fn load(
+        &self,
+        reader: &mut dyn Reader,
+        _settings: &(),
+        _load_context: &mut LoadContext<'_>,
+    ) -> Result<Self::Asset, Self::Error> {
+        info!("Loading Blob...");
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).await?;
+
+        Ok(Blob { bytes })
+    }
+}

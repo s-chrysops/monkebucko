@@ -1,0 +1,8 @@
+{
+    "monkebucko::game::interactions::dialogue::DialogueStorage": ({
+        None: (
+            elements: [],
+            lines: [],
+        ),
+    }),
+}
