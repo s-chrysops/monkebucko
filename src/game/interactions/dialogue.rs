@@ -407,12 +407,16 @@ impl Hash for DialogueId {
 
 impl IsEnabled for DialogueId {}
 
+#[derive(Debug, Component)]
+struct DialogueElementMarker;
+
 #[derive(Debug, Reflect)]
 // A Sprite to be loaded for a Dialogue scene that can have its own animation
 // and be animated via DialogueActions
 struct DialogueElement {
     path: String,
 
+    position:    Vec2,
     custom_size: Option<Vec2>,
 
     frames:  usize,
@@ -426,11 +430,17 @@ impl DialogueElement {
     fn new(path: &'static str) -> Self {
         DialogueElement {
             path:        path.to_string(),
+            position:    Vec2::ZERO,
             custom_size: None,
             frames:      1,
             fps:         Self::DEFAULT_FPS,
             looping:     false,
         }
+    }
+
+    fn _position(mut self, position: Vec2) -> Self {
+        self.position = position;
+        self
     }
 
     fn custom_size(mut self, custom_size: Vec2) -> Self {
@@ -499,6 +509,8 @@ enum ActionMode {
     Translate,
     _Rotate,
     Scale,
+    Activate,
+    Deactivate,
 }
 
 // A Transform animation to be played on an indexed DialogueElement
@@ -528,9 +540,17 @@ impl DialogueAction {
         }
     }
 
-    fn teleport(element: usize, start: Vec2, end: Vec2) -> Self {
+    fn _teleport(element: usize, start: Vec2, end: Vec2) -> Self {
         // this is jank af
         Self::new(element).start(start).end(end).duration(0.001)
+    }
+
+    fn activate(element: usize) -> Self {
+        Self::new(element).mode(ActionMode::Activate)
+    }
+
+    fn deactivate(element: usize) -> Self {
+        Self::new(element).mode(ActionMode::Deactivate)
     }
 
     fn mode(mut self, mode: ActionMode) -> Self {
@@ -617,10 +637,10 @@ impl TextAnimatorInfo {
 }
 
 #[derive(Clone, Copy, Debug, Event)]
-struct ClipStarted;
+struct ElementActivated;
 
 #[derive(Clone, Copy, Debug, Event)]
-struct ClipEnded;
+struct ElementDeactivated;
 
 const ELEMENT_TILE_SIZE: UVec2 = UVec2::splat(64);
 
@@ -653,13 +673,16 @@ fn load_dialogue(
             id,
             AnimationPlayer::default(),
             Transform::default(),
-            Visibility::Hidden,
+            Visibility::default(),
             RENDER_LAYER_OVERLAY,
         ))
         .id();
 
-    type HandlesAndIds = (Vec<Handle<Image>>, Vec<AnimationTargetId>);
-    let (image_handles, target_ids): HandlesAndIds = dialogue
+    let mut activation_observer = Observer::new(activate_element);
+    let mut deactivation_observer = Observer::new(deactivate_element);
+
+    type ElementsInfo = (Vec<Handle<Image>>, Vec<AnimationTargetId>);
+    let (image_handles, target_ids): ElementsInfo = dialogue
         .elements
         .iter()
         .map(|element| {
@@ -678,14 +701,18 @@ fn load_dialogue(
                 index:  0,
             };
 
-            let mut sprite_animation =
-                SpriteAnimation::new(0, element.frames - 1, element.fps).paused();
-            if element.looping {
-                sprite_animation = sprite_animation.looping();
-            }
+            let sprite_animation = {
+                let sprite_animation =
+                    SpriteAnimation::new(0, element.frames - 1, element.fps).paused();
+                match element.looping {
+                    true => sprite_animation.looping(),
+                    false => sprite_animation,
+                }
+            };
 
-            commands
+            let element_entity = commands
                 .spawn((
+                    DialogueElementMarker,
                     name,
                     AnimationTarget {
                         player: root_entity,
@@ -699,15 +726,21 @@ fn load_dialogue(
                         ..Default::default()
                     },
                     sprite_animation,
-                    Transform::from_xyz(-2000.0, -2000.0, 0.0),
-                    Visibility::Inherited,
+                    Transform::default(),
+                    Visibility::Hidden,
                     RENDER_LAYER_OVERLAY,
                 ))
-                .observe(play_sprite_animation);
+                .id();
+
+            activation_observer.watch_entity(element_entity);
+            deactivation_observer.watch_entity(element_entity);
 
             (image_handle, target_id)
         })
         .unzip();
+
+    commands.spawn(activation_observer);
+    commands.spawn(deactivation_observer);
 
     type AnimatorInfo = (Vec<TextAnimatorInfo>, Vec<Handle<AnimationClip>>);
     let (text_animator_info, clips): AnimatorInfo = dialogue
@@ -744,16 +777,6 @@ fn load_dialogue(
     ));
 
     root_entity
-}
-
-fn play_sprite_animation(
-    trigger: Trigger<ClipStarted>,
-    mut q_sprite_animations: Query<&mut SpriteAnimation, With<AnimationTarget>>,
-) {
-    q_sprite_animations
-        .get_mut(trigger.target())
-        .expect("Trigger target should have Sprite Animation")
-        .play();
 }
 
 fn add_action_to_clip(
@@ -805,12 +828,37 @@ fn add_action_to_clip(
                 .unwrap(),
             ),
         ),
+        ActionMode::Activate => {
+            clip.add_event_to_target(element_target_id, action.delay, ElementActivated)
+        }
+        ActionMode::Deactivate => {
+            clip.add_event_to_target(element_target_id, action.delay, ElementDeactivated)
+        }
     };
 
-    clip.add_event_to_target(element_target_id, action.delay, ClipStarted);
-    clip.add_event_to_target(element_target_id, action.duration, ClipEnded);
-
     clip
+}
+
+fn activate_element(
+    trigger: Trigger<ElementActivated>,
+    mut q_elements: Query<(&mut SpriteAnimation, &mut Visibility), With<DialogueElementMarker>>,
+) {
+    let (mut animation, mut visibility) = q_elements
+        .get_mut(trigger.target())
+        .expect("All Dialogue elements should have Sprite Animation and Visibility");
+    animation.as_mut().play();
+    *visibility = Visibility::Visible;
+}
+
+fn deactivate_element(
+    trigger: Trigger<ElementDeactivated>,
+    mut q_elements: Query<(&mut SpriteAnimation, &mut Visibility), With<DialogueElementMarker>>,
+) {
+    let (mut animation, mut visibility) = q_elements
+        .get_mut(trigger.target())
+        .expect("All Dialogue elements should have Sprite Animation and Visibility");
+    animation.as_mut().pause();
+    *visibility = Visibility::Hidden;
 }
 
 #[derive(Debug, Default, Deref, DerefMut, Resource, Reflect)]
@@ -831,7 +879,13 @@ fn add_stored_dialogue(
     type_registry: Res<AppTypeRegistry>,
     mut dialogue_storage: ResMut<DialogueStorage>,
     mut commands: Commands,
+    mut finished: Local<bool>,
 ) {
+    // Just in case system runs again before ['DialogueStored'] is removed
+    if *finished {
+        return;
+    }
+
     let Some(blob) = assets_blob.get(&dialogue_stored.0) else {
         info_once!("Stored dialogue still loading");
         return;
@@ -840,24 +894,20 @@ fn add_stored_dialogue(
     use bevy::{reflect::serde::ReflectDeserializer, scene::ron::Deserializer};
     use serde::de::DeserializeSeed;
 
-    // info!("{:?}", blob);
-
-    // let ron_string = std::fs::read_to_string(DIALOGUE_RON_PATH).unwrap();
-
     let type_registry = type_registry.read();
 
     let reflect_deserializer = ReflectDeserializer::new(&type_registry);
-    // let mut deserializer = bevy::scene::ron::Deserializer::from_str(&ron_string).unwrap();
     let mut deserializer = Deserializer::from_bytes(&blob.bytes).unwrap();
     let reflect_value = reflect_deserializer.deserialize(&mut deserializer).unwrap();
 
     dialogue_storage.apply(&*reflect_value);
     commands.remove_resource::<DialogueStored>();
+    *finished = true;
 }
 
 fn add_new_dialogue(mut dialogue_storage: ResMut<DialogueStorage>) {
     const SCENE_AREA_HEIGHT: f32 = 540.0;
-    const OFFSCREEN: Vec2 = Vec2::splat(-2000.0);
+    const _OFFSCREEN: Vec2 = Vec2::splat(-2048.0);
 
     dialogue_storage.insert(
         DialogueId::UckoIntro,
@@ -883,7 +933,7 @@ fn add_new_dialogue(mut dialogue_storage: ResMut<DialogueStorage>) {
                     "Pardon me. Did I miss something? What's going on?",
                 )
                 .delay(7.5)
-                .add_action(DialogueAction::new(0))
+                .add_action(DialogueAction::activate(0))
                 .add_action(
                     DialogueAction::new(0)
                         .mode(ActionMode::Scale)
@@ -892,8 +942,8 @@ fn add_new_dialogue(mut dialogue_storage: ResMut<DialogueStorage>) {
                         .ease(EaseFunction::Steps(3, JumpAt::End))
                         .duration(6.0),
                 )
-                .add_action(DialogueAction::teleport(0, Vec2::ZERO, OFFSCREEN).delay(6.5))
-                .add_action(DialogueAction::teleport(1, OFFSCREEN, Vec2::ZERO).delay(6.5)),
+                .add_action(DialogueAction::deactivate(0).delay(6.5))
+                .add_action(DialogueAction::activate(1).delay(6.5)),
                 DialogueLine::new(Character::Unknown, "...").speed(1.0),
                 DialogueLine::new(Character::Bucko, "Uh oh..."),
                 DialogueLine::new(Character::Bucko, "AAAAAAIIIIEEEEEE!!"),
@@ -914,25 +964,6 @@ fn add_new_dialogue(mut dialogue_storage: ResMut<DialogueStorage>) {
         },
     );
 }
-
-// #[derive(Debug, Deref, Resource)]
-// struct DialogueFinishedSystems(BuckoNoHashHashmap<DialogueId, SystemId>);
-
-// impl FromWorld for DialogueFinishedSystems {
-//     fn from_world(world: &mut World) -> Self {
-//         let mut systems: BuckoNoHashHashmap<DialogueId, SystemId> =
-//             HashMap::with_hasher(BuildBuckoNoHashHasher::default());
-
-//         systems.insert(
-//             DialogueId::UckoIntro,
-//             world.register_system(|mut commands: Commands| {
-//                 commands.set_state(GameState::Loading);
-//             }),
-//         );
-
-//         DialogueFinishedSystems(systems)
-//     }
-// }
 
 #[cfg(not(target_arch = "wasm32"))]
 fn save_dialogue_storage_as_ron(
@@ -959,3 +990,22 @@ fn save_dialogue_storage_as_ron(
         })
         .detach();
 }
+
+// #[derive(Debug, Deref, Resource)]
+// struct DialogueFinishedSystems(BuckoNoHashHashmap<DialogueId, SystemId>);
+
+// impl FromWorld for DialogueFinishedSystems {
+//     fn from_world(world: &mut World) -> Self {
+//         let mut systems: BuckoNoHashHashmap<DialogueId, SystemId> =
+//             HashMap::with_hasher(BuildBuckoNoHashHasher::default());
+
+//         systems.insert(
+//             DialogueId::UckoIntro,
+//             world.register_system(|mut commands: Commands| {
+//                 commands.set_state(GameState::Loading);
+//             }),
+//         );
+
+//         DialogueFinishedSystems(systems)
+//     }
+// }

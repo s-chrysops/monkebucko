@@ -66,7 +66,7 @@ impl SpriteAnimation {
         self
     }
 
-    pub fn _pause(&mut self) -> &mut Self {
+    pub fn pause(&mut self) -> &mut Self {
         self.playing = false;
         self
     }
