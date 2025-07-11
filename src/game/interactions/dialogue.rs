@@ -69,7 +69,7 @@ pub fn dialogue_plugin(app: &mut App) {
     .register_type::<DialogueLine>()
     .register_type::<DialogueAction>()
     .register_type::<ActionMode>()
-    .register_type::<Dialogue>()
+    .register_type::<DialogueInfo>()
     .register_type::<DialogueStorage>()
     .register_type::<DialoguePreload>();
 
@@ -238,9 +238,7 @@ fn fetch_dialouge(
     let current_dialouge_entity = q_dialogues
         .iter()
         .find_map(|(id, entity)| (*id == current_id.0).then_some(entity))
-        .unwrap_or_else(|| {
-            load_dialogue(commands.reborrow(), &storage, &asset_server, current_id.0)
-        });
+        .unwrap_or_else(|| load_dialogue(&mut commands, &storage, &asset_server, current_id.0));
 
     commands
         .entity(current_dialouge_entity)
@@ -258,7 +256,7 @@ fn wait_for_loaded_and_bars(
     mut e_reader: EventReader<CinematicBarsIn>,
     mut dialogue_state: ResMut<NextState<DialogueState>>,
     mut bar_animation_done: Local<bool>,
-    current_dialogue: Single<(&DialogueInfo, &mut Visibility), With<DialogueCurrent>>,
+    current_dialogue: Single<(&Dialogue, &mut Visibility), With<DialogueCurrent>>,
     asset_server: Res<AssetServer>,
 ) {
     if e_reader.read().count() > 0 {
@@ -274,30 +272,52 @@ fn wait_for_loaded_and_bars(
 }
 
 fn play_dialogue(
-    current_dialogues: Single<(&DialogueInfo, &mut AnimationPlayer), With<DialogueCurrent>>,
-    interaction_text: Single<&mut TextSimpleAnimator, With<InteractionText>>,
+    current_dialogues: Single<(&Dialogue, &mut AnimationPlayer), With<DialogueCurrent>>,
+    interaction_prefix: Single<&mut TextSimpleAnimator, With<InteractionPrefix>>,
+    interaction_text: Single<
+        &mut TextSimpleAnimator,
+        (With<InteractionText>, Without<InteractionPrefix>),
+    >,
 ) {
-    let (info, mut animator) = current_dialogues.into_inner();
-    animator.play(info.nodes[0]);
-    let TextAnimatorInfo { text, speed, delay } = &info.texts[0];
-    *interaction_text.into_inner() = match delay {
-        Some(seconds) => TextSimpleAnimator::new(text, *speed).with_wait_before(*seconds),
-        None => TextSimpleAnimator::new(text, *speed),
+    let (dialogue, mut element_animator) = current_dialogues.into_inner();
+
+    element_animator.play(dialogue.nodes[0]);
+
+    let TextAnimatorInfo { text, speed, delay } = &dialogue.texts[0];
+
+    let speaker = dialogue.speakers[0];
+    let mut prefix_animator = match speaker {
+        Character::None => TextSimpleAnimator::default(),
+        _ => TextSimpleAnimator::new(&format!("{speaker}: "), f32::MAX),
+    };
+    let mut text_animator = TextSimpleAnimator::new(text, *speed);
+
+    if let Some(seconds) = delay {
+        prefix_animator = prefix_animator.with_wait_before(*seconds);
+        text_animator = text_animator.with_wait_before(*seconds);
     }
+
+    *interaction_prefix.into_inner() = prefix_animator;
+    *interaction_text.into_inner() = text_animator;
 }
 
+#[allow(clippy::type_complexity)]
 fn advance_dialogue(
-    current_dialogues: Single<(&DialogueInfo, &mut AnimationPlayer), With<DialogueCurrent>>,
-    interaction_text: Single<(&mut Text, &mut TextSimpleAnimator), With<InteractionText>>,
+    current_dialogues: Single<(&Dialogue, &mut AnimationPlayer), With<DialogueCurrent>>,
+    interaction_prefix: Single<&mut TextSimpleAnimator, With<InteractionPrefix>>,
+    interaction_text: Single<
+        (&mut Text, &mut TextSimpleAnimator),
+        (With<InteractionText>, Without<InteractionPrefix>),
+    >,
     mut dialogue_state: ResMut<NextState<DialogueState>>,
     mut line_index: Local<usize>,
 ) {
     *line_index += 1;
 
-    let (info, mut dialogue_animator) = current_dialogues.into_inner();
+    let (dialogue, mut element_animator) = current_dialogues.into_inner();
     let (mut text, mut text_animator) = interaction_text.into_inner();
 
-    if *line_index == info.nodes.len() {
+    if *line_index == dialogue.nodes.len() {
         // Dialogue is finished
         *line_index = 0;
         text.clear();
@@ -305,18 +325,32 @@ fn advance_dialogue(
         return;
     }
 
-    if !dialogue_animator.all_finished() {
-        dialogue_animator.adjust_speeds(256.0);
+    if !element_animator.all_finished() {
+        element_animator.adjust_speeds(256.0);
         return;
     }
 
     // info!("Playing animations index: {}", *line_index);
-    dialogue_animator.stop_all().play(info.nodes[*line_index]);
-    let TextAnimatorInfo { text, speed, delay } = &info.texts[*line_index];
-    *text_animator = match delay {
-        Some(seconds) => TextSimpleAnimator::new(text, *speed).with_wait_before(*seconds),
-        None => TextSimpleAnimator::new(text, *speed),
+    element_animator
+        .stop_all()
+        .play(dialogue.nodes[*line_index]);
+
+    let TextAnimatorInfo { text, speed, delay } = &dialogue.texts[*line_index];
+
+    let speaker = dialogue.speakers[*line_index];
+    let mut prefix_animator = match speaker {
+        Character::None => TextSimpleAnimator::default(),
+        _ => TextSimpleAnimator::new(&format!("{speaker}: "), f32::MAX),
+    };
+    let mut new_text_animator = TextSimpleAnimator::new(text, *speed);
+
+    if let Some(seconds) = delay {
+        prefix_animator = prefix_animator.with_wait_before(*seconds);
+        new_text_animator = new_text_animator.with_wait_before(*seconds);
     }
+
+    *interaction_prefix.into_inner() = prefix_animator;
+    *text_animator = new_text_animator;
 }
 
 fn post_dialogue(mut commands: Commands, current_dialogue: Res<DialogueCurrentId>) {
@@ -423,6 +457,7 @@ impl DialogueElement {
 #[derive(Debug, Reflect)]
 // Contains any actions for DialogueElements to be played during the line
 struct DialogueLine {
+    speaker: Character,
     text:    String,
     speed:   f32,
     delay:   Option<f32>,
@@ -430,11 +465,15 @@ struct DialogueLine {
 }
 
 impl DialogueLine {
-    fn new(line: &'static str) -> Self {
+    const DEFAULT_TEXT_SPEED: f32 = 16.0; // chars per second
+
+    fn new(speaker: Character, text: &'static str) -> Self {
+        let text = text.to_string();
         DialogueLine {
-            text:    line.to_string(),
-            speed:   16.0,
-            delay:   None,
+            speaker,
+            text,
+            speed: Self::DEFAULT_TEXT_SPEED,
+            delay: None,
             actions: vec![],
         }
     }
@@ -528,23 +567,27 @@ impl DialogueAction {
 #[derive(Debug, Component)]
 struct DialogueRoot;
 
-// A cutscene of dialogue with elements and lines with actions that act on those elements
+// Information to construct a cutscene of dialogue with elements
+// and lines with actions that act on those elements
 #[derive(Debug, Reflect)]
-struct Dialogue {
+struct DialogueInfo {
     elements: Vec<DialogueElement>,
     lines:    Vec<DialogueLine>,
 }
 
 #[derive(Debug, Component)]
-struct DialogueInfo {
-    images: Vec<Handle<Image>>,
-    texts:  Vec<TextAnimatorInfo>,
-    nodes:  Vec<AnimationNodeIndex>,
+struct Dialogue {
+    elements: Vec<Handle<Image>>,
+
+    // Should all have lengths equal to the number of lines
+    speakers: Vec<Character>,
+    texts:    Vec<TextAnimatorInfo>,
+    nodes:    Vec<AnimationNodeIndex>,
 }
 
-impl DialogueInfo {
+impl Dialogue {
     fn loaded(&self, asset_server: Res<'_, AssetServer>) -> bool {
-        self.images.iter().all(|handle| {
+        self.elements.iter().all(|handle| {
             matches!(
                 asset_server.get_load_state(handle.id()),
                 Some(LoadState::Loaded)
@@ -588,12 +631,12 @@ fn preload_dialogues(
     asset_server: Res<AssetServer>,
 ) {
     preload.drain(..).for_each(|id| {
-        load_dialogue(commands.reborrow(), &storage, &asset_server, id);
+        load_dialogue(&mut commands, &storage, &asset_server, id);
     })
 }
 
 fn load_dialogue(
-    mut commands: Commands,
+    commands: &mut Commands,
     storage: &Res<'_, DialogueStorage>,
     asset_server: &Res<'_, AssetServer>,
     id: DialogueId,
@@ -685,15 +728,18 @@ fn load_dialogue(
         })
         .unzip();
 
+    let speakers: Vec<Character> = dialogue.lines.iter().map(|line| line.speaker).collect();
+
     let (animation_graph, animation_nodes) = AnimationGraph::from_clips(clips);
     let animation_graph_handle: Handle<AnimationGraph> = asset_server.add(animation_graph);
 
     commands.entity(root_entity).insert((
         AnimationGraphHandle(animation_graph_handle),
-        DialogueInfo {
-            images: image_handles,
-            texts:  text_animator_info,
-            nodes:  animation_nodes,
+        Dialogue {
+            elements: image_handles,
+            speakers,
+            texts: text_animator_info,
+            nodes: animation_nodes,
         },
     ));
 
@@ -769,7 +815,7 @@ fn add_action_to_clip(
 
 #[derive(Debug, Default, Deref, DerefMut, Resource, Reflect)]
 #[reflect(Resource)]
-struct DialogueStorage(EnumMap<DialogueId, Dialogue>);
+struct DialogueStorage(EnumMap<DialogueId, DialogueInfo>);
 
 #[derive(Debug, Resource)]
 struct DialogueStored(Handle<Blob>);
@@ -815,7 +861,7 @@ fn add_new_dialogue(mut dialogue_storage: ResMut<DialogueStorage>) {
 
     dialogue_storage.insert(
         DialogueId::UckoIntro,
-        Dialogue {
+        DialogueInfo {
             elements: vec![
                 DialogueElement::new("sprites/bucko/intro.png")
                     .custom_size(Vec2::splat(SCENE_AREA_HEIGHT))
@@ -832,29 +878,32 @@ fn add_new_dialogue(mut dialogue_storage: ResMut<DialogueStorage>) {
                 DialogueElement::new("sprites/bucko/escape.png"),
             ],
             lines:    vec![
-                DialogueLine::new("Pardon me. Did I miss something? What's going on?")
-                    .delay(7.5)
-                    .add_action(DialogueAction::new(0))
-                    .add_action(
-                        DialogueAction::new(0)
-                            .mode(ActionMode::Scale)
-                            .start(vec2(0.1, 0.1))
-                            .end(vec2(1.0, 1.0))
-                            .ease(EaseFunction::Steps(3, JumpAt::End))
-                            .duration(6.0),
-                    )
-                    .add_action(DialogueAction::teleport(0, Vec2::ZERO, OFFSCREEN).delay(6.5))
-                    .add_action(DialogueAction::teleport(1, OFFSCREEN, Vec2::ZERO).delay(6.5)),
-                DialogueLine::new("...").speed(1.0),
-                DialogueLine::new("Uh oh..."),
-                DialogueLine::new("AAAAAAIIIIEEEEEE!!"),
+                DialogueLine::new(
+                    Character::Bucko,
+                    "Pardon me. Did I miss something? What's going on?",
+                )
+                .delay(7.5)
+                .add_action(DialogueAction::new(0))
+                .add_action(
+                    DialogueAction::new(0)
+                        .mode(ActionMode::Scale)
+                        .start(vec2(0.1, 0.1))
+                        .end(vec2(1.0, 1.0))
+                        .ease(EaseFunction::Steps(3, JumpAt::End))
+                        .duration(6.0),
+                )
+                .add_action(DialogueAction::teleport(0, Vec2::ZERO, OFFSCREEN).delay(6.5))
+                .add_action(DialogueAction::teleport(1, OFFSCREEN, Vec2::ZERO).delay(6.5)),
+                DialogueLine::new(Character::Unknown, "...").speed(1.0),
+                DialogueLine::new(Character::Bucko, "Uh oh..."),
+                DialogueLine::new(Character::Bucko, "AAAAAAIIIIEEEEEE!!"),
             ],
         },
     );
 
     dialogue_storage.insert(
         DialogueId::NinjuckoIntro,
-        Dialogue {
+        DialogueInfo {
             elements: vec![
                 DialogueElement::new("sprites/ninjucko/idle.png")
                     .frames(4)

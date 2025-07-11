@@ -24,7 +24,7 @@ pub fn interactions_plugin(app: &mut App) {
             Update,
             (
                 advance_interaction_text
-                    .run_if(pressed_advance_key.and(any_with_component::<InteractionText>)),
+                    .run_if(pressed_advance_key.and(any_with_component::<InteractionPanel>)),
                 conclude_text_interaction
                     .run_if(in_state(InteractionState::Text).and(on_event::<InteractionAdvance>)),
             ),
@@ -121,6 +121,7 @@ pub fn play_interactions(
             commands.insert_resource(DialogueCurrentId(id));
             commands
                 .spawn(interaction_panel(CLEAR))
+                .with_child(interaction_prefix())
                 .with_child(interaction_text(""));
         }
         EntityInteraction::Special(entity) => {
@@ -160,6 +161,9 @@ fn conclude_text_interaction(
 struct InteractionPanel;
 
 #[derive(Debug, Component)]
+struct InteractionPrefix;
+
+#[derive(Debug, Component)]
 struct InteractionText;
 
 fn interaction_panel(opacity: f32) -> impl Bundle {
@@ -179,6 +183,19 @@ fn interaction_panel(opacity: f32) -> impl Bundle {
     )
 }
 
+fn interaction_prefix() -> impl Bundle {
+    (
+        InteractionPrefix,
+        Text::new(""),
+        TextFont {
+            font_size: 16.0,
+            ..default()
+        },
+        TextColor(WHITE.into()),
+        TextSimpleAnimator::default(),
+    )
+}
+
 fn interaction_text(text: &str) -> impl Bundle {
     (
         InteractionText,
@@ -190,4 +207,29 @@ fn interaction_text(text: &str) -> impl Bundle {
         TextColor(WHITE.into()),
         TextSimpleAnimator::new(text, 16.0),
     )
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, Default, Reflect)]
+pub enum Character {
+    #[default]
+    None,
+    Unknown,
+    Bucko,
+    Ninjucko,
+    Wizucko,
+    Bartucko,
+    Brock,
+    Maducko,
+    Cowbucko,
+}
+
+impl std::fmt::Display for Character {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Character::Unknown => write!(f, "???"),
+            Character::Brock => write!(f, "Bane \"The Brock\" Bronson"),
+            _ => write!(f, "{:?}", self),
+        }
+    }
 }
