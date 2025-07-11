@@ -13,7 +13,7 @@ use bevy_rand::prelude::*;
 use rand_core::RngCore;
 
 use crate::{
-    RENDER_LAYER_OVERLAY, RENDER_LAYER_WORLD, Settings, WINDOW_HEIGHT, WINDOW_WIDTH,
+    RENDER_LAYER_OVERLAY, RENDER_LAYER_WORLD, Settings,
     animation::{SpriteAnimation, SpriteAnimationFinished},
     auto_scaling::AspectRatio,
     despawn_screen,
@@ -931,7 +931,7 @@ struct Temp;
 struct EggSpecialDebugText;
 
 #[derive(Debug, Deref, Component)]
-struct FadeNode(AnimationNodeIndex);
+struct ExitNode(AnimationNodeIndex);
 
 const EASE_DURATION: f32 = 3.0;
 const SPECIAL_FRAME_TRANSLATION: Vec3 = vec3(1.0, 1.0, 0.5);
@@ -948,9 +948,6 @@ fn setup_camera_movements(
 
     let player_target_name = Name::new("Player");
     let player_target_id = AnimationTargetId::from_name(&player_target_name);
-
-    let fade_target_name = Name::new("FadeWhite");
-    let fade_target_id = AnimationTargetId::from_name(&fade_target_name);
 
     let (animation_graph, animation_node_index) = AnimationGraph::from_clips([
         animation_clips.add({
@@ -1000,15 +997,9 @@ fn setup_camera_movements(
                     .unwrap(),
                 ),
             );
-            ease_into_crack_clip.add_curve_to_target(
-                fade_target_id,
-                AnimatableCurve::new(
-                    animated_field!(Opacity::0),
-                    EasingCurve::new(0.0, 1.0, EaseFunction::ExponentialInOut)
-                        .reparametrize_linear(animation_domain)
-                        .unwrap(),
-                ),
-            );
+            ease_into_crack_clip.add_event_fn(0.0, |commands, _entity, _time, _weight|{
+                commands.run_system_cached(effects::fade_to_white);
+            });
             ease_into_crack_clip
         }),
     ]);
@@ -1017,22 +1008,9 @@ fn setup_camera_movements(
     let mut animation_player = AnimationPlayer::default();
     animation_player.play(animation_node_index[0]);
 
-    commands.spawn((
-        Fade,
-        Sprite::from_color(WHITE.with_alpha(0.0), vec2(WINDOW_WIDTH, WINDOW_HEIGHT)),
-        Opacity(0.0),
-        AnimationTarget {
-            id:     fade_target_id,
-            player: player_entity,
-        },
-        fade_target_name,
-        Transform::from_xyz(0.0, 0.0, Z_EFFECTS),
-        RENDER_LAYER_OVERLAY,
-    ));
-
     commands.entity(player_entity).insert((
         animation_player,
-        FadeNode(animation_node_index[1]),
+        ExitNode(animation_node_index[1]),
         AnimationGraphHandle(animation_graph_handle),
         AnimationTarget {
             id:     player_target_id,
@@ -1055,7 +1033,7 @@ enum EggSpecialState {
 #[allow(clippy::too_many_arguments)] // lmao
 fn egg_special(
     mut commands: Commands,
-    player: Single<(&mut Transform, &mut AnimationPlayer, &FadeNode), With<Player>>,
+    player: Single<(&mut Transform, &mut AnimationPlayer, &ExitNode), With<Player>>,
     mut controllers: Query<(&EggSpecialElementInfo, &mut AnimationPlayer), Without<Player>>,
     mut q_sprite_animations: Query<&mut SpriteAnimation>,
     crack: Single<&Health, With<Crack>>,

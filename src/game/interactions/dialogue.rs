@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 
 use super::*;
 use crate::{
-    Blob, EnumMap, RENDER_LAYER_OVERLAY, WINDOW_HEIGHT, WINDOW_WIDTH, animation::SpriteAnimation,
-    game::topdown::PlayerSpawnLocation,
+    Blob, EnumMap, RENDER_LAYER_OVERLAY, WINDOW_WIDTH, animation::SpriteAnimation,
+    game::effects::*, game::topdown::PlayerSpawnLocation,
 };
 
 #[derive(SubStates, Clone, PartialEq, Eq, Hash, Debug, Default)]
@@ -26,52 +26,48 @@ enum DialogueState {
 }
 
 pub fn dialogue_plugin(app: &mut App) {
-    app.add_systems(
-        Startup,
-        (spawn_cinematic_bars, add_new_dialogue, load_stored_dialogue),
-    )
-    .add_systems(
-        Update,
-        (
-            add_stored_dialogue.run_if(resource_exists::<DialogueStored>),
-            preload_dialogues.run_if(resource_exists_and_changed::<DialoguePreload>),
-        ),
-    )
-    .add_systems(
-        OnEnter(DialogueState::Loading),
-        (fetch_dialouge, cinematic_bars_in),
-    )
-    .add_systems(
-        Update,
-        wait_for_loaded_and_bars.run_if(in_state(DialogueState::Loading)),
-    )
-    .add_systems(OnEnter(DialogueState::Playing), play_dialogue)
-    .add_systems(
-        Update,
-        advance_dialogue
-            .run_if(in_state(DialogueState::Playing).and(on_event::<InteractionAdvance>)),
-    )
-    .add_systems(
-        OnEnter(DialogueState::Ending),
-        (post_dialogue, cinematic_bars_out).chain(),
-    )
-    .add_systems(
-        Update,
-        conclude_dialogue.run_if(in_state(DialogueState::Ending).and(on_event::<CinematicBarsOut>)),
-    )
-    .add_event::<CinematicBarsIn>()
-    .add_event::<CinematicBarsOut>()
-    .add_sub_state::<DialogueState>()
-    .init_resource::<DialoguePreload>()
-    .init_resource::<DialogueStorage>()
-    .register_type::<DialogueId>()
-    .register_type::<DialogueElement>()
-    .register_type::<DialogueLine>()
-    .register_type::<DialogueAction>()
-    .register_type::<ActionMode>()
-    .register_type::<DialogueInfo>()
-    .register_type::<DialogueStorage>()
-    .register_type::<DialoguePreload>();
+    app.add_systems(Startup, (add_new_dialogue, load_stored_dialogue))
+        .add_systems(
+            Update,
+            (
+                add_stored_dialogue.run_if(resource_exists::<DialogueStored>),
+                preload_dialogues.run_if(resource_exists_and_changed::<DialoguePreload>),
+            ),
+        )
+        .add_systems(
+            OnEnter(DialogueState::Loading),
+            (fetch_dialouge, cinematic_bars_in),
+        )
+        .add_systems(
+            Update,
+            wait_for_loaded_and_bars.run_if(in_state(DialogueState::Loading)),
+        )
+        .add_systems(OnEnter(DialogueState::Playing), play_dialogue)
+        .add_systems(
+            Update,
+            advance_dialogue
+                .run_if(in_state(DialogueState::Playing).and(on_event::<InteractionAdvance>)),
+        )
+        .add_systems(
+            OnEnter(DialogueState::Ending),
+            (post_dialogue, cinematic_bars_out).chain(),
+        )
+        .add_systems(
+            Update,
+            conclude_dialogue
+                .run_if(in_state(DialogueState::Ending).and(on_event::<CinematicBarsOut>)),
+        )
+        .add_sub_state::<DialogueState>()
+        .init_resource::<DialoguePreload>()
+        .init_resource::<DialogueStorage>()
+        .register_type::<DialogueId>()
+        .register_type::<DialogueElement>()
+        .register_type::<DialogueLine>()
+        .register_type::<DialogueAction>()
+        .register_type::<ActionMode>()
+        .register_type::<DialogueInfo>()
+        .register_type::<DialogueStorage>()
+        .register_type::<DialoguePreload>();
 
     #[cfg(not(target_arch = "wasm32"))]
     app.add_systems(
@@ -79,150 +75,6 @@ pub fn dialogue_plugin(app: &mut App) {
         save_dialogue_storage_as_ron
             .run_if(|key_input: Res<ButtonInput<KeyCode>>| key_input.just_pressed(KeyCode::F12)),
     );
-}
-
-#[derive(Debug, Component)]
-struct CinematicBars;
-
-#[derive(Debug, Resource)]
-struct CinematicBarsNodes {
-    in_node:  AnimationNodeIndex,
-    out_node: AnimationNodeIndex,
-}
-
-#[derive(Debug, Clone, Copy, Event)]
-struct CinematicBarsIn;
-
-#[derive(Debug, Clone, Copy, Event)]
-struct CinematicBarsOut;
-
-fn spawn_cinematic_bars(mut commands: Commands, asset_server: Res<AssetServer>) {
-    const BAR_HEIGHT: f32 = WINDOW_HEIGHT / 8.0;
-    let bar_sprite = Sprite::from_color(BLACK, vec2(WINDOW_WIDTH, BAR_HEIGHT));
-
-    let bar_upper_name = Name::new("bar_upper");
-    let bar_lower_name = Name::new("bar_lower");
-    let bar_upper_target_id = AnimationTargetId::from_name(&bar_upper_name);
-    let bar_lower_target_id = AnimationTargetId::from_name(&bar_lower_name);
-
-    let bar_upper_in_y = (WINDOW_HEIGHT - BAR_HEIGHT) / 2.0;
-    let bar_lower_in_y = -bar_upper_in_y;
-    let bar_upper_out_y = bar_upper_in_y + BAR_HEIGHT;
-    let bar_lower_out_y = bar_lower_in_y - BAR_HEIGHT;
-
-    const DURATION: f32 = 3.0;
-    let domain = interval(0.0, DURATION).unwrap();
-
-    let (graph, nodes) = AnimationGraph::from_clips([
-        asset_server.add({
-            let mut clip_in = AnimationClip::default();
-            clip_in.add_curve_to_target(
-                bar_upper_target_id,
-                AnimatableCurve::new(
-                    animated_field!(Transform::translation),
-                    EasingCurve::new(
-                        vec3(0.0, bar_upper_out_y, Z_EFFECTS),
-                        vec3(0.0, bar_upper_in_y, Z_EFFECTS),
-                        EaseFunction::SmoothStep,
-                    )
-                    .reparametrize_linear(domain)
-                    .unwrap(),
-                ),
-            );
-            clip_in.add_curve_to_target(
-                bar_lower_target_id,
-                AnimatableCurve::new(
-                    animated_field!(Transform::translation),
-                    EasingCurve::new(
-                        vec3(0.0, bar_lower_out_y, Z_EFFECTS),
-                        vec3(0.0, bar_lower_in_y, Z_EFFECTS),
-                        EaseFunction::SmoothStep,
-                    )
-                    .reparametrize_linear(domain)
-                    .unwrap(),
-                ),
-            );
-            clip_in.add_event_fn(DURATION, |commands, _entity, _time, _weight| {
-                commands.send_event(CinematicBarsIn);
-            });
-            clip_in
-        }),
-        asset_server.add({
-            let mut clip_out = AnimationClip::default();
-            clip_out.add_curve_to_target(
-                bar_upper_target_id,
-                AnimatableCurve::new(
-                    animated_field!(Transform::translation),
-                    EasingCurve::new(
-                        vec3(0.0, bar_upper_in_y, Z_EFFECTS),
-                        vec3(0.0, bar_upper_out_y, Z_EFFECTS),
-                        EaseFunction::SmoothStep,
-                    )
-                    .reparametrize_linear(domain)
-                    .unwrap(),
-                ),
-            );
-            clip_out.add_curve_to_target(
-                bar_lower_target_id,
-                AnimatableCurve::new(
-                    animated_field!(Transform::translation),
-                    EasingCurve::new(
-                        vec3(0.0, bar_lower_in_y, Z_EFFECTS),
-                        vec3(0.0, bar_lower_out_y, Z_EFFECTS),
-                        EaseFunction::SmoothStep,
-                    )
-                    .reparametrize_linear(domain)
-                    .unwrap(),
-                ),
-            );
-            clip_out.add_event_fn(DURATION, |commands, _entity, _time, _weight| {
-                commands.send_event(CinematicBarsOut);
-            });
-            clip_out
-        }),
-    ]);
-
-    commands.insert_resource(CinematicBarsNodes {
-        in_node:  nodes[0],
-        out_node: nodes[1],
-    });
-
-    let root_entity = commands
-        .spawn((
-            CinematicBars,
-            AnimationPlayer::default(),
-            AnimationGraphHandle(asset_server.add(graph)),
-            Transform::default(),
-            Visibility::default(),
-            RENDER_LAYER_OVERLAY,
-        ))
-        .id();
-
-    commands.spawn((
-        bar_upper_name,
-        ChildOf(root_entity),
-        bar_sprite.clone(),
-        AnimationTarget {
-            id:     bar_upper_target_id,
-            player: root_entity,
-        },
-        Transform::from_xyz(0.0, bar_upper_out_y, Z_EFFECTS),
-        Visibility::default(),
-        RENDER_LAYER_OVERLAY,
-    ));
-
-    commands.spawn((
-        bar_lower_name,
-        ChildOf(root_entity),
-        bar_sprite,
-        AnimationTarget {
-            id:     bar_lower_target_id,
-            player: root_entity,
-        },
-        Transform::from_xyz(0.0, bar_upper_out_y, Z_EFFECTS),
-        Visibility::default(),
-        RENDER_LAYER_OVERLAY,
-    ));
 }
 
 #[derive(Debug, Component)]
@@ -243,13 +95,6 @@ fn fetch_dialouge(
     commands
         .entity(current_dialouge_entity)
         .insert(DialogueCurrent);
-}
-
-fn cinematic_bars_in(
-    nodes: Res<CinematicBarsNodes>,
-    mut cinematic_bars: Single<&mut AnimationPlayer, With<CinematicBars>>,
-) {
-    cinematic_bars.stop_all().play(nodes.in_node);
 }
 
 fn wait_for_loaded_and_bars(
@@ -367,13 +212,6 @@ fn post_dialogue(mut commands: Commands, current_dialogue: Res<DialogueCurrentId
     }
 }
 
-fn cinematic_bars_out(
-    nodes: Res<CinematicBarsNodes>,
-    mut cinematic_bars: Single<&mut AnimationPlayer, With<CinematicBars>>,
-) {
-    cinematic_bars.stop_all().play(nodes.out_node);
-}
-
 fn conclude_dialogue(
     mut commands: Commands,
     current_dialogue: Single<Entity, With<DialogueCurrent>>,
@@ -438,7 +276,7 @@ impl DialogueElement {
         }
     }
 
-    fn _position(mut self, position: Vec2) -> Self {
+    fn position(mut self, position: Vec2) -> Self {
         self.position = position;
         self
     }
@@ -908,6 +746,8 @@ fn add_stored_dialogue(
 fn add_new_dialogue(mut dialogue_storage: ResMut<DialogueStorage>) {
     const SCENE_AREA_HEIGHT: f32 = 540.0;
     const _OFFSCREEN: Vec2 = Vec2::splat(-2048.0);
+    const OFFSCREEN_RIGHT: Vec2 = vec2((WINDOW_WIDTH + SCENE_AREA_HEIGHT) / 2.0, 0.0);
+    const OFFSCREEN_LEFT: Vec2 = vec2(-(WINDOW_WIDTH + SCENE_AREA_HEIGHT) / 2.0, 0.0);
 
     dialogue_storage.insert(
         DialogueId::UckoIntro,
@@ -922,7 +762,7 @@ fn add_new_dialogue(mut dialogue_storage: ResMut<DialogueStorage>) {
                     .custom_size(Vec2::splat(SCENE_AREA_HEIGHT))
                     .frames(18)
                     .fps(16),
-                DialogueElement::new("sprites/ucko/group.png"),
+                DialogueElement::new("sprites/ucko/group.png").position(OFFSCREEN_RIGHT),
                 DialogueElement::new("sprites/bucko/bones_1.png"),
                 DialogueElement::new("sprites/bucko/bones_2.png"),
                 DialogueElement::new("sprites/bucko/escape.png"),
@@ -944,7 +784,22 @@ fn add_new_dialogue(mut dialogue_storage: ResMut<DialogueStorage>) {
                 )
                 .add_action(DialogueAction::deactivate(0).delay(6.5))
                 .add_action(DialogueAction::activate(1).delay(6.5)),
-                DialogueLine::new(Character::Unknown, "...").speed(1.0),
+                DialogueLine::new(Character::Unknown, "...")
+                    .speed(1.0)
+                    .delay(2.0)
+                    .add_action(DialogueAction::activate(2))
+                    .add_action(
+                        DialogueAction::new(1)
+                            .start(Vec2::ZERO)
+                            .end(OFFSCREEN_LEFT)
+                            .duration(2.0),
+                    )
+                    .add_action(
+                        DialogueAction::new(2)
+                            .start(OFFSCREEN_RIGHT)
+                            .end(Vec2::ZERO)
+                            .duration(2.0),
+                    ),
                 DialogueLine::new(Character::Bucko, "Uh oh..."),
                 DialogueLine::new(Character::Bucko, "AAAAAAIIIIEEEEEE!!"),
             ],

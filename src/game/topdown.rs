@@ -1,10 +1,6 @@
 #![allow(clippy::type_complexity)]
 use avian2d::prelude::*;
-use bevy::{
-    animation::{AnimationTarget, animated_field},
-    prelude::*,
-    time::Stopwatch,
-};
+use bevy::{prelude::*, time::Stopwatch};
 use bevy_ecs_tiled::prelude::*;
 use bevy_ecs_tilemap::tiles::TileStorage;
 
@@ -13,7 +9,10 @@ use crate::{
     RENDER_LAYER_WORLD, WINDOW_HEIGHT, WINDOW_WIDTH,
     animation::*,
     despawn_screen,
-    game::interactions::{dialogue::DialoguePreload, *},
+    game::{
+        effects::*,
+        interactions::{dialogue::DialoguePreload, *},
+    },
 };
 
 #[derive(Debug, Component)]
@@ -25,7 +24,7 @@ pub fn topdown_plugin(app: &mut App) {
             exited:  GameState::Egg,
             entered: GameState::TopDown,
         },
-        fade_from_egg,
+        fade_from_white,
     )
     .add_systems(
         OnEnter(GameState::TopDown),
@@ -38,7 +37,7 @@ pub fn topdown_plugin(app: &mut App) {
             update_near_interactables,
             update_player_submerged,
             update_player_z,
-            wait_for_fade,
+            wait_for_fade.run_if(on_event::<FadeOut>),
         )
             .run_if(in_state(GameState::TopDown))
             .run_if(|current_map: Res<CurrentMap>| current_map.loaded),
@@ -209,49 +208,8 @@ fn setup_collider_bodies(
     commands.entity(trigger.entity).insert(RigidBody::Static);
 }
 
-fn fade_from_egg(
-    mut commands: Commands,
-    fade_white: Single<(Entity, &AnimationTarget), (With<Fade>, Without<AnimationPlayer>)>,
-    mut animation_graphs: ResMut<Assets<AnimationGraph>>,
-    mut animation_clips: ResMut<Assets<AnimationClip>>,
-) {
-    let (fade_entity, fade_target) = fade_white.into_inner();
-    let (animation_graph, animation_node) = AnimationGraph::from_clip(animation_clips.add({
-        let mut fade_in_clip = AnimationClip::default();
-        fade_in_clip.add_curve_to_target(
-            fade_target.id,
-            AnimatableCurve::new(
-                animated_field!(Opacity::0),
-                EasingCurve::new(1.0, 0.0, EaseFunction::ExponentialInOut),
-            ),
-        );
-        fade_in_clip.add_event_fn(1.0, |commands, entity, _time, _weight| {
-            commands.entity(entity).despawn();
-        });
-        fade_in_clip
-    }));
-    let animation_graph_handle = animation_graphs.add(animation_graph);
-    let mut animation_player = AnimationPlayer::default();
-    animation_player.play(animation_node);
-
-    commands.entity(fade_entity).insert((
-        OnTopDown,
-        animation_player,
-        AnimationGraphHandle(animation_graph_handle),
-        AnimationTarget {
-            id:     fade_target.id,
-            player: fade_entity,
-        },
-    ));
-}
-
-fn wait_for_fade(
-    q_fade: Query<&mut AnimationPlayer, With<Fade>>,
-    mut movement_state: ResMut<NextState<MovementState>>,
-) {
-    if !q_fade.is_empty() && q_fade.iter().all(|player| player.all_finished()) {
-        movement_state.set(MovementState::Enabled);
-    }
+fn wait_for_fade(mut movement_state: ResMut<NextState<MovementState>>) {
+    movement_state.set(MovementState::Enabled);
 }
 
 const TOTAL_TOPDOWN_MAPS: usize = 7;

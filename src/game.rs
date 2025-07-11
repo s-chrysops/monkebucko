@@ -3,8 +3,10 @@ use bevy_persistent::Persistent;
 use bevy_text_animation::*;
 
 use super::{AppState, Settings};
+use effects::effects_plugin;
 use interactions::interactions_plugin;
 
+pub mod effects;
 pub mod interactions;
 
 use bones::bones_plugin;
@@ -47,11 +49,10 @@ struct Player;
 struct WorldCamera;
 
 pub fn game_plugin(app: &mut App) {
-    app.add_plugins(interactions_plugin)
+    app.add_plugins((effects_plugin, interactions_plugin))
         .add_plugins((bones_plugin, egg_plugin, topdown_plugin))
         .add_systems(OnEnter(AppState::Game), game_setup)
         .add_systems(PreUpdate, get_user_input)
-        .add_systems(Update, update_fade)
         .init_resource::<UserInput>()
         .init_state::<GameState>()
         .init_state::<MovementState>();
@@ -105,20 +106,6 @@ fn get_user_input(
     if let Ok(new_direction) = Dir2::new(raw_vector) {
         user_input.last_valid_direction = new_direction;
     }
-}
-
-#[derive(Debug, Component)]
-struct Fade;
-
-#[derive(Clone, Component, Debug, Deref, DerefMut, Reflect)]
-#[reflect(Component)]
-struct Opacity(f32);
-
-#[allow(clippy::type_complexity)]
-fn update_fade(mut q_fade: Query<(&mut Sprite, &Opacity), (With<Fade>, Changed<Opacity>)>) {
-    q_fade.iter_mut().for_each(|(mut sprite, Opacity(alpha))| {
-        sprite.color = sprite.color.with_alpha(*alpha);
-    });
 }
 
 fn pressed_interact_key(
