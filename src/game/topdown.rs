@@ -49,7 +49,7 @@ pub fn topdown_plugin(app: &mut App) {
             player_swim.run_if(player_submerged),
             get_topdown_interactions
                 .pipe(play_interactions)
-                .run_if(in_state(InteractionState::None).and(pressed_interact_key)),
+                .run_if(in_state(InteractionState::None).and(just_pressed_interact)),
         )
             .run_if(in_state(GameState::TopDown))
             .run_if(in_state(MovementState::Enabled)),

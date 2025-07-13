@@ -55,17 +55,31 @@ pub fn game_plugin(app: &mut App) {
         .add_systems(PreUpdate, get_user_input)
         .init_resource::<UserInput>()
         .init_state::<GameState>()
-        .init_state::<MovementState>();
+        .init_state::<MovementState>()
+        .register_type::<UserInput>();
 }
 
 fn game_setup(mut commands: Commands) {
-    commands.set_state(GameState::Egg);
+    commands.set_state(GameState::TopDown);
 }
 
-#[derive(Debug, Resource)]
+#[derive(Debug, Reflect)]
+enum KeyState {
+    Press,
+    Hold,
+    Release,
+    Off,
+}
+
+#[derive(Debug, Resource, Reflect)]
+#[reflect(Resource)]
 struct UserInput {
     raw_vector:           Vec2,
     last_valid_direction: Dir2,
+
+    jump:     KeyState,
+    swap:     KeyState,
+    interact: KeyState,
 }
 
 impl Default for UserInput {
@@ -73,6 +87,9 @@ impl Default for UserInput {
         UserInput {
             raw_vector:           Vec2::ZERO,
             last_valid_direction: Dir2::EAST,
+            jump:                 KeyState::Off,
+            swap:                 KeyState::Off,
+            interact:             KeyState::Off,
         }
     }
 }
@@ -106,13 +123,35 @@ fn get_user_input(
     if let Ok(new_direction) = Dir2::new(raw_vector) {
         user_input.last_valid_direction = new_direction;
     }
+
+    let [jump_state, swap_state, interact_state] =
+        [settings.jump, settings.swap, settings.interact].map(|key| {
+            if key_input.just_pressed(key) {
+                KeyState::Press
+            } else if key_input.pressed(key) {
+                KeyState::Hold
+            } else if key_input.just_released(key) {
+                KeyState::Release
+            } else {
+                KeyState::Off
+            }
+        });
+
+    user_input.jump = jump_state;
+    user_input.swap = swap_state;
+    user_input.interact = interact_state;
 }
 
-fn pressed_interact_key(
-    key_input: Res<ButtonInput<KeyCode>>,
-    settings: Res<Persistent<Settings>>,
-) -> bool {
-    key_input.just_pressed(settings.interact)
+fn just_pressed_jump(user_input: Res<UserInput>) -> bool {
+    matches!(user_input.jump, KeyState::Press)
+}
+
+fn _just_pressed_swap(user_input: Res<UserInput>) -> bool {
+    matches!(user_input.swap, KeyState::Press)
+}
+
+fn just_pressed_interact(user_input: Res<UserInput>) -> bool {
+    matches!(user_input.interact, KeyState::Press)
 }
 
 fn pressed_advance_key(

@@ -81,7 +81,7 @@ pub fn egg_plugin(app: &mut App) {
             .pipe(play_interactions)
             .run_if(in_state(GameState::Egg))
             .run_if(in_state(MovementState::Enabled))
-            .run_if(pressed_interact_key),
+            .run_if(just_pressed_interact),
     )
     .add_systems(OnEnter(EggState::Special), setup_camera_movements)
     .add_systems(
@@ -997,7 +997,7 @@ fn setup_camera_movements(
                     .unwrap(),
                 ),
             );
-            ease_into_crack_clip.add_event_fn(0.0, |commands, _entity, _time, _weight|{
+            ease_into_crack_clip.add_event_fn(0.0, |commands, _entity, _time, _weight| {
                 commands.run_system_cached(effects::fade_to_white);
             });
             ease_into_crack_clip
