@@ -166,12 +166,12 @@ fn update_fade(mut q_fade: Query<(&mut Sprite, &FadeOpacity), Changed<FadeOpacit
         });
 }
 
-pub fn _fade_to_black(fade_black: Single<(&mut AnimationPlayer, &EffectsNodes), With<FadeBlack>>) {
+pub fn fade_to_black(fade_black: Single<(&mut AnimationPlayer, &EffectsNodes), With<FadeBlack>>) {
     let (mut player, nodes) = fade_black.into_inner();
     player.stop_all().play(nodes.in_node);
 }
 
-pub fn _fade_from_black(fade_black: Single<(&mut AnimationPlayer, &EffectsNodes), With<FadeBlack>>) {
+pub fn fade_from_black(fade_black: Single<(&mut AnimationPlayer, &EffectsNodes), With<FadeBlack>>) {
     let (mut player, nodes) = fade_black.into_inner();
     player.stop_all().play(nodes.out_node);
 }

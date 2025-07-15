@@ -22,7 +22,7 @@ impl SpriteAnimation {
         SpriteAnimation {
             first_index: first,
             last_index:  last,
-            frame_timer: Timer::from_seconds(1.0 / (fps as f32), TimerMode::Once),
+            frame_timer: Timer::from_seconds((fps as f32).recip(), TimerMode::Once),
             delay:       0.0, // because I need it and don't want another to add another Timer :p
             looping:     false,
             playing:     true,
@@ -61,14 +61,18 @@ impl SpriteAnimation {
         self
     }
 
-    pub fn play(&mut self) -> &mut Self {
+    pub fn play(&mut self) {
         self.playing = true;
-        self
     }
 
-    pub fn pause(&mut self) -> &mut Self {
+    pub fn pause(&mut self) {
         self.playing = false;
-        self
+    }
+
+    pub fn change_fps(&mut self, fps: u8) {
+        let elapsed = self.frame_timer.elapsed();
+        self.frame_timer = Timer::from_seconds((fps as f32).recip(), TimerMode::Once);
+        self.frame_timer.set_elapsed(elapsed);
     }
 }
 
