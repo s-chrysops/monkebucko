@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<map version="1.10" tiledversion="1.11.2" orientation="orthogonal" renderorder="right-down" width="128" height="16" tilewidth="32" tileheight="32" infinite="0" nextlayerid="4" nextobjectid="4">
+<map version="1.10" tiledversion="1.11.2" orientation="orthogonal" renderorder="right-down" width="128" height="16" tilewidth="32" tileheight="32" infinite="0" nextlayerid="4" nextobjectid="24">
  <tileset firstgid="1" name="basic_terrain" tilewidth="32" tileheight="32" tilecount="160" columns="10">
   <image source="../tilesets/basic_terrain/terrain_tiles_v2.png" width="320" height="512"/>
   <wangsets>
@@ -90,7 +90,32 @@
 </data>
  </layer>
  <objectgroup id="3" name="Object Layer 1">
-  <object id="2" x="0" y="368" width="4096" height="16"/>
-  <object id="3" x="-63" y="115"/>
+  <object id="2" x="-64" y="368" width="1696" height="16"/>
+  <object id="6" x="1088" y="304" width="64" height="64"/>
+  <object id="8" x="1024" y="368">
+   <polygon points="0,0 64,-32 64,0"/>
+  </object>
+  <object id="10" x="1152" y="304">
+   <polyline points="0,0 32,32 32,64 0,64 0,0"/>
+  </object>
+  <object id="11" x="1184" y="336">
+   <polyline points="0,0 64,32 0,32 0,0"/>
+  </object>
+  <object id="12" x="1344" y="368">
+   <polyline points="0,0 32,-32 32,0 0,0"/>
+  </object>
+  <object id="14" x="1376" y="336" width="64" height="32"/>
+  <object id="15" x="1440" y="336">
+   <polyline points="0,0 32,-32 32,32 0,32 0,0"/>
+  </object>
+  <object id="17" x="1472" y="304" width="160" height="64"/>
+  <object id="18" x="1792" y="368" width="2368" height="16"/>
+  <object id="19" x="1632" y="400" width="160" height="16"/>
+  <object id="20" x="1760" y="400">
+   <polyline points="0,0 32,-32 32,0 0,0"/>
+  </object>
+  <object id="21" x="416" y="368">
+   <polygon points="0,0 64,-32 224,-32 224,0"/>
+  </object>
  </objectgroup>
 </map>

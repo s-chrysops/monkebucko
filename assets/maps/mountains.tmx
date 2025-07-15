@@ -660,14 +660,14 @@
   </object>
   <object id="5" gid="577" x="928" y="352" width="26" height="32">
    <properties>
-    <property name="Test" type="class" propertytype="monkebucko::game::EntityInteraction">
+    <property name="Test Interaction" type="class" propertytype="monkebucko::game::interactions::EntityInteraction">
      <properties>
-      <property name=":variant" propertytype="monkebucko::game::EntityInteraction:::Variant" value="Dialogue"/>
-      <property name="Dialogue" type="class" propertytype="monkebucko::game::EntityInteraction::Dialogue">
+      <property name=":variant" propertytype="monkebucko::game::interactions::EntityInteraction:::Variant" value="Dialogue"/>
+      <property name="Dialogue" type="class" propertytype="monkebucko::game::interactions::EntityInteraction::Dialogue">
        <properties>
-        <property name="0" type="class" propertytype="monkebucko::game::dialogue::DialogueId">
+        <property name="0" type="class" propertytype="monkebucko::game::interactions::dialogue::DialogueId">
          <properties>
-          <property name=":variant" propertytype="monkebucko::game::dialogue::DialogueId:::Variant" value="UckoIntro"/>
+          <property name=":variant" propertytype="monkebucko::game::interactions::dialogue::DialogueId:::Variant" value="UckoIntro"/>
          </properties>
         </property>
        </properties>
