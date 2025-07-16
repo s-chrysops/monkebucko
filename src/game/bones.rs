@@ -47,7 +47,9 @@ pub fn bones_plugin(app: &mut App) {
             progress_map,
             update_buckos_grounded,
             (
-                player_jump.run_if(just_pressed_jump.and(player_grounded)),
+                player_jump.run_if(
+                    in_state(BonesState::Playing).and(just_pressed_jump.and(player_grounded)),
+                ),
                 update_player_state,
                 update_player_animation,
             )
