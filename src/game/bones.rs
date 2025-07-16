@@ -1,7 +1,11 @@
 #![allow(clippy::type_complexity)]
+use std::{f32::consts::FRAC_PI_2, time::Duration};
+
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy_ecs_tiled::prelude::*;
+use bevy_rand::prelude::*;
+use rand_core::RngCore;
 
 use crate::{
     RENDER_LAYER_WORLD, WINDOW_HEIGHT, WINDOW_WIDTH, animation::SpriteAnimation, despawn_screen,
@@ -30,7 +34,8 @@ pub fn bones_plugin(app: &mut App) {
             setup_camera,
             setup_map,
             setup_player,
-            spawn_enemies,
+            setup_enemies,
+            setup_sprite_effects,
         ),
     )
     .add_systems(
@@ -44,22 +49,29 @@ pub fn bones_plugin(app: &mut App) {
             update_buckos_grounded,
             (
                 player_jump.run_if(just_pressed_jump.and(player_grounded)),
+                update_player_state,
                 update_player_animation,
             )
                 .chain()
                 .run_if(in_state(MovementState::Enabled)),
-            update_enemies_velocity,
             enemy_sprint,
             enemy_chase,
             enemy_jump,
             enemy_dive,
-            enemy_land_jump,
-            enemy_land_dive,
+            enemy_land,
             enemy_recover,
+            enemy_fire,
         )
             .run_if(in_state(BonesState::Playing)),
     )
-    .add_systems(FixedUpdate, update_player_velocity.run_if(player_grounded))
+    .add_systems(
+        FixedUpdate,
+        (
+            update_enemies_velocity,
+            update_player_velocity.run_if(player_grounded),
+        )
+            .run_if(in_state(BonesState::Playing)),
+    )
     .add_systems(OnEnter(BonesState::Ending), fade_to_black)
     .add_systems(
         Update,
@@ -164,8 +176,6 @@ fn setup_map(
                 ));
             },
         );
-
-    commands.insert_resource(Gravity(vec2(0.0, -9.81 * 32.0)));
 }
 
 #[derive(Debug, Component, Deref, DerefMut, Reflect)]
@@ -174,16 +184,31 @@ struct BonesHealth(u8);
 
 const PLAYER_MAX_HEALTH: u8 = 8;
 
-#[derive(Debug, Component, Deref, DerefMut, PartialEq, Reflect)]
+// #[derive(Debug, Component, Deref, DerefMut, PartialEq, Reflect)]
+// #[reflect(Component)]
+// struct OldGrounded(bool);
+
+#[derive(Debug, Component, Default, Deref, DerefMut, PartialEq, Reflect)]
 #[reflect(Component)]
-struct Grounded(bool);
+struct Grounded {
+    forward: Option<Vec2>,
+}
+
+#[derive(Debug, Component, Default, PartialEq, Reflect)]
+#[reflect(Component)]
+enum PlayerState {
+    #[default]
+    Run,
+    Still,
+    Jump,
+}
 
 fn setup_player(
     mut commands: Commands,
     mut asset_tracker: ResMut<BonesAssetTracker>,
     asset_server: Res<AssetServer>,
 ) {
-    const PLAYER_START: Vec3 = vec3(384.0, 175.0, 1.0);
+    const PLAYER_START: Vec3 = vec3(384.0, 180.0, 1.0);
 
     let player_image = asset_server.load("sprites/bucko/escape.png");
     let layout = TextureAtlasLayout::from_grid(UVec2::splat(64), 8, 8, None, None);
@@ -205,6 +230,7 @@ fn setup_player(
             Player,
             Name::new("Bucko"),
             BonesHealth(PLAYER_MAX_HEALTH),
+            PlayerState::default(),
             Transform::from_translation(PLAYER_START),
             (
                 // Visual
@@ -222,8 +248,8 @@ fn setup_player(
                 LockedAxes::ROTATION_LOCKED,
                 LinearVelocity(Vec2::X * 32.0),
                 Friction::ZERO,
-                LinearDamping(0.2),
-                Grounded(true),
+                LinearDamping(1.0),
+                Grounded::default(),
             ),
         ))
         .observe(player_damage);
@@ -254,17 +280,29 @@ impl Default for RecoveryTimer {
     }
 }
 
+#[derive(Debug, Component, Deref, DerefMut, Reflect)]
+#[reflect(Component)]
+struct FireTimer(Timer);
+
+impl Default for FireTimer {
+    fn default() -> Self {
+        const FIRE_TIME: f32 = 8.0;
+        FireTimer(Timer::from_seconds(FIRE_TIME, TimerMode::Once))
+    }
+}
+
 #[derive(Debug, Component)]
-struct UckoHitbox;
+struct DamageCollider;
 
 const ENEMY_AMOUNT: u8 = 3;
 
-fn spawn_enemies(
+fn setup_enemies(
     mut commands: Commands,
     mut asset_tracker: ResMut<BonesAssetTracker>,
     asset_server: Res<AssetServer>,
+    mut rng: GlobalEntropy<WyRand>,
 ) {
-    const ENEMY_START: Vec3 = vec3(64.0, 176.0, 1.0);
+    const ENEMY_START: Vec3 = vec3(64.0, 180.0, 1.0);
     const ENEMY_SPACING: f32 = 48.0;
 
     let enemy_image = asset_server.load("bucko.png");
@@ -293,14 +331,20 @@ fn spawn_enemies(
         SpatialQueryFilter::from_mask([ColliderLayer::World, ColliderLayer::Player]);
 
     (0..ENEMY_AMOUNT).for_each(move |i| {
-        let offset = Vec3::NEG_X * ENEMY_SPACING * i as f32;
+        let offset_x = Vec3::NEG_X * ENEMY_SPACING * i as f32;
+        let offset_z = Vec3::NEG_Z * 0.01 * i as f32;
         commands.spawn((
             OnBones,
             Ucko,
             Name::new(format!("Ucko_{}", i)),
-            UckoState::default(),
-            RecoveryTimer::default(),
-            Transform::from_translation(ENEMY_START + offset),
+            Transform::from_translation(ENEMY_START + offset_x + offset_z),
+            (
+                // Ucko
+                UckoState::default(),
+                FireTimer::default(),
+                RecoveryTimer::default(),
+                rng.fork_rng(),
+            ),
             (
                 // Visual
                 enemy_sprite.clone(),
@@ -319,9 +363,9 @@ fn spawn_enemies(
                 LockedAxes::ROTATION_LOCKED,
                 LinearVelocity(Vec2::X * 36.0),
                 Friction::ZERO,
-                Grounded(true),
+                Grounded::default(),
                 children![(
-                    UckoHitbox,
+                    DamageCollider,
                     Sensor,
                     Collider::circle(15.9),
                     hitbox_collision_layers,
@@ -331,13 +375,37 @@ fn spawn_enemies(
     });
 }
 
+#[derive(Debug, Resource)]
+struct BonesEffects {
+    fireball: Sprite,
+}
+
+fn setup_sprite_effects(
+    mut commands: Commands,
+    mut asset_tracker: ResMut<BonesAssetTracker>,
+    asset_server: Res<AssetServer>,
+) {
+    let fireball_image = asset_server.load("sprites/effects/fireball.png");
+    asset_tracker.push(fireball_image.clone().untyped());
+
+    let fireball_layout = TextureAtlasLayout::from_grid(UVec2::splat(32), 6, 1, None, None);
+    let fireball_layout = asset_server.add(fireball_layout);
+    let fireball_sprite = Sprite::from_atlas_image(fireball_image, fireball_layout.into());
+
+    commands.insert_resource(BonesEffects {
+        fireball: fireball_sprite,
+    });
+}
+
 fn wait_till_loaded(
     mut bones_state: ResMut<NextState<BonesState>>,
+    mut gravity: ResMut<Gravity>,
     mut asset_tracker: ResMut<BonesAssetTracker>,
     asset_server: Res<AssetServer>,
 ) {
     if asset_tracker.loaded(asset_server) {
         asset_tracker.clear();
+        *gravity = Gravity(Vec2::NEG_Y * 9.81 * 32.0);
         bones_state.set(BonesState::Playing);
     }
 }
@@ -376,7 +444,7 @@ fn progress_map(
 
 fn player_damage(
     trigger: Trigger<OnCollisionStart>,
-    q_hitboxes: Query<(), With<UckoHitbox>>,
+    q_hitboxes: Query<(), With<DamageCollider>>,
     mut player_health: Single<&mut BonesHealth, With<Player>>,
 ) {
     if q_hitboxes.contains(trigger.collider) {
@@ -386,11 +454,11 @@ fn player_damage(
 
 fn update_buckos_grounded(
     collisions: Collisions,
-    ground_bodies: Query<&RigidBody, With<TiledColliderMarker>>,
+    ground_bodies: Query<(), With<TiledColliderMarker>>,
     mut buckos: Query<(Entity, &mut Grounded)>,
 ) {
     buckos.iter_mut().for_each(|(entity, mut grounded)| {
-        let is_grounded = collisions.collisions_with(entity).any(|contact| {
+        let is_grounded = collisions.collisions_with(entity).find_map(|contact| {
             let is_first = entity == contact.collider1;
 
             let other_body = match is_first {
@@ -399,95 +467,114 @@ fn update_buckos_grounded(
             };
 
             let Some(other_body) = other_body else {
-                return false; // other collider has no body so it's not the ground
+                return None; // other collider has no body so it's not the ground
             };
 
             if !ground_bodies.contains(other_body) {
-                return false;
+                return None;
             }
 
-            contact.manifolds.iter().any(|manifold| {
+            contact.manifolds.iter().find_map(|manifold| {
                 let normal = match is_first {
                     true => -manifold.normal,
                     false => manifold.normal,
                 }; // Normal points from ground to bucko
 
-                normal.y > 0.0
+                (normal.y > 0.0).then_some(-normal.perp())
             }) // contact isn't completely horizontal, you're grounded bucko
         });
 
-        grounded.set_if_neq(Grounded(is_grounded));
+        grounded.set_if_neq(Grounded {
+            forward: is_grounded,
+        });
     })
 }
 
 fn player_grounded(player_grounded: Single<&Grounded, With<Player>>) -> bool {
-    player_grounded.0
+    player_grounded.is_some()
 }
 
 fn update_player_velocity(
-    player: Single<(&BonesHealth, &mut LinearVelocity), With<Player>>,
+    player: Single<(&BonesHealth, &Grounded, &mut LinearVelocity), With<Player>>,
     user_input: Res<UserInput>,
     time: Res<Time<Fixed>>,
 ) {
     const ACCELERATION: f32 = 256.0;
 
-    let (health, mut velocity) = player.into_inner();
+    let (health, grounded, mut velocity) = player.into_inner();
 
     let max_x_velocity = (health.0 as f32 * 2.0) + 32.0;
+    let forward = grounded
+        .forward
+        .expect("System should only run if grounded");
 
     // let health_multiplier = (health.0 as f32 / 8.0) + 1.0;
     // velocity.x = ((user_input.raw_vector.x * 16.0) + MIN_SPEED) * health_multiplier;
-    velocity.x += user_input.raw_vector.x * ACCELERATION * time.delta_secs();
+    velocity.0 += forward * user_input.raw_vector.x * ACCELERATION * time.delta_secs();
     velocity.x = velocity.x.clamp(0.0, max_x_velocity);
 }
 
 fn player_jump(mut player_velocity: Single<&mut LinearVelocity, With<Player>>) {
     const JUMP_IMPULSE: Vec2 = vec2(32.0, 256.0);
-    // With this jank "grounded" check, you can probably
-    // double jump if you're laggy enough
-    // let dy_near_zero = velocity.y.abs() < 0.001;
-    // if grounded.0 && matches!(user_input.jump, KeyState::Press) {
-    //     velocity.y += JUMP_IMPULSE;
-    // }
     player_velocity.0 += JUMP_IMPULSE;
+}
+
+fn update_player_state(
+    player: Single<(&Grounded, &LinearVelocity, &mut PlayerState), With<Player>>,
+) {
+    const RUN_THRESHOLD: f32 = 4.0;
+
+    let (grounded, velocity, mut state) = player.into_inner();
+
+    let new_state = match grounded.is_some() {
+        true => match velocity.x > RUN_THRESHOLD {
+            true => PlayerState::Run,
+            false => PlayerState::Still,
+        },
+        false => PlayerState::Jump,
+    };
+
+    state.set_if_neq(new_state);
 }
 
 fn update_player_animation(
     player: Single<
         (
             Ref<BonesHealth>,
-            Ref<Grounded>,
+            Ref<PlayerState>,
             &LinearVelocity,
             &mut SpriteAnimation,
         ),
         With<Player>,
     >,
 ) {
-    const ANIMATION_ROWS: u8 = 6;
+    const ANIMATION_ROWS: u8 = 7;
     const SPRITES_PER_ROW: usize = 8;
-    // const STILLS_INDEX: usize = 56;
+    const STILLS_INDEX: usize = 56;
+    const MIN_FPS: u8 = 6;
 
-    let (health, grounded, velocity, mut animator) = player.into_inner();
+    let (health, state, velocity, mut animation) = player.into_inner();
 
     let current_row = (PLAYER_MAX_HEALTH - health.0).min(ANIMATION_ROWS - 1) as usize;
     let new_index = SPRITES_PER_ROW * current_row;
 
-    if health.is_changed() || grounded.is_changed() {
-        *animator = match grounded.0 {
-            true => SpriteAnimation::new(new_index, new_index + 7, 12).looping(),
-            false => SpriteAnimation::set_frame(new_index),
+    if state.is_changed() || health.is_changed() {
+        *animation = match *state {
+            PlayerState::Run => SpriteAnimation::new(new_index, new_index + 7, 12).looping(),
+            PlayerState::Jump => SpriteAnimation::set_frame(new_index), // first frame of row is jump
+            PlayerState::Still => SpriteAnimation::set_frame(STILLS_INDEX + current_row),
+        };
+
+        if matches!(*state, PlayerState::Run) {
+            animation
+                .as_mut()
+                .change_fps(MIN_FPS + (velocity.x / 8.0) as u8);
         }
     }
-
-    // match velocity.x < 4.0 {
-    //     true => *animator = SpriteAnimation::set_frame(STILLS_INDEX + current_row),
-    //     false => animator.as_mut().change_fps(6 + (velocity.x / 8.0) as u8),
-    // }
-    animator.as_mut().change_fps(6 + (velocity.x / 8.0) as u8);
 }
 
 fn update_enemies_velocity(
-    mut q_enemies: Query<(&UckoState, &mut LinearVelocity), With<Ucko>>,
+    mut q_enemies: Query<(&UckoState, &Grounded, &mut LinearVelocity), With<Ucko>>,
     time_fixed: Res<Time<Fixed>>,
 ) {
     const MAX_X_VELOCITY_NORMAL: f32 = 33.0;
@@ -496,9 +583,12 @@ fn update_enemies_velocity(
 
     q_enemies
         .iter_mut()
-        .filter(|(state, ..)| matches!(**state, UckoState::Chase | UckoState::Sprint))
-        .for_each(|(state, mut velocity)| {
-            velocity.x += ACCELERATION * time_fixed.delta_secs();
+        .filter(|(state, grounded, ..)| {
+            grounded.is_some() && matches!(**state, UckoState::Chase | UckoState::Sprint)
+        })
+        .for_each(|(state, grounded, mut velocity)| {
+            let forward = grounded.forward.unwrap();
+            velocity.0 += forward * ACCELERATION * time_fixed.delta_secs();
             velocity.x = match state {
                 UckoState::Chase => velocity.x.clamp(0.0, MAX_X_VELOCITY_NORMAL),
                 UckoState::Sprint => velocity.x.clamp(0.0, MAX_X_VELOCITY_SPRINT),
@@ -527,7 +617,8 @@ fn enemy_sprint(
 
 fn enemy_chase(
     camera: Single<&Transform, With<WorldCamera>>,
-    mut q_enemies: Query<(&mut UckoState, &Transform), With<Ucko>>,
+    mut q_enemies: Query<(&mut UckoState, &Transform, &mut Entropy<WyRand>), With<Ucko>>,
+    mut stop_offset: Local<f32>,
 ) {
     const QUARTERSCREEN: f32 = WINDOW_WIDTH / 8.0;
     let camera_position = camera.translation.x;
@@ -535,9 +626,10 @@ fn enemy_chase(
     q_enemies
         .iter_mut()
         .filter(|(state, ..)| matches!(**state, UckoState::Sprint))
-        .for_each(|(mut state, transform)| {
+        .for_each(|(mut state, transform, mut rng)| {
             let distance_to_center = camera_position - transform.translation.x;
-            if distance_to_center < QUARTERSCREEN {
+            if distance_to_center < QUARTERSCREEN + *stop_offset {
+                *stop_offset = random_range(&mut rng, -64.0, 64.0);
                 *state = UckoState::Chase;
             }
         });
@@ -564,15 +656,6 @@ fn enemy_jump(
         });
 }
 
-fn enemy_land_jump(
-    mut q_enemies: Query<(&mut UckoState, &Grounded), (With<Ucko>, Changed<Grounded>)>,
-) {
-    q_enemies
-        .iter_mut()
-        .filter(|(state, grounded)| grounded.0 && matches!(**state, UckoState::Jump))
-        .for_each(|(mut state, ..)| *state = UckoState::Chase);
-}
-
 fn enemy_dive(
     player: Single<Entity, With<Player>>,
     mut q_enemies: Query<(&mut UckoState, &RayHits, &mut LinearVelocity), With<Ucko>>,
@@ -589,7 +672,7 @@ fn enemy_dive(
         });
 }
 
-fn enemy_land_dive(
+fn enemy_land(
     mut q_enemies: Query<
         (&mut UckoState, &Grounded, &mut LinearVelocity),
         (With<Ucko>, Changed<Grounded>),
@@ -597,10 +680,18 @@ fn enemy_land_dive(
 ) {
     q_enemies
         .iter_mut()
-        .filter(|(state, grounded, ..)| matches!(**state, UckoState::Dive) && grounded.0)
+        .filter(|(state, grounded, ..)| {
+            grounded.is_some() && matches!(**state, UckoState::Dive | UckoState::Jump)
+        })
         .for_each(|(mut state, _grounded, mut velocity)| {
-            velocity.set_if_neq(LinearVelocity::ZERO);
-            *state = UckoState::Recover
+            *state = match *state {
+                UckoState::Dive => {
+                    velocity.set_if_neq(LinearVelocity::ZERO);
+                    UckoState::Recover
+                }
+                UckoState::Jump => UckoState::Chase,
+                _ => unreachable!(),
+            }
         });
 }
 
@@ -619,8 +710,105 @@ fn enemy_recover(
         });
 }
 
+fn enemy_fire(
+    mut commands: Commands,
+    mut q_enemies: Query<
+        (&UckoState, &mut FireTimer, &mut Entropy<WyRand>, &Transform),
+        With<Ucko>,
+    >,
+    time: Res<Time>,
+) {
+    q_enemies
+        .iter_mut()
+        .filter(|(state, ..)| matches!(**state, UckoState::Chase))
+        .for_each(|(_state, mut timer, mut rng, transform)| {
+            if timer.tick(time.delta()).just_finished() {
+                timer.reset();
+                let headstart = random_range(&mut rng, 0.0, 4.0);
+                timer.set_elapsed(Duration::from_secs_f32(headstart));
+                if rng_percentage(&mut rng, 0.5) {
+                    commands.run_system_cached_with(spawn_fireball, transform.translation);
+                }
+            }
+        });
+}
+
+#[derive(Debug, Component)]
+struct Fireball;
+
+#[derive(Debug, Component)]
+struct FireballCollider;
+
+fn spawn_fireball(In(origin): In<Vec3>, mut commands: Commands, effects: Res<BonesEffects>) {
+    const FIREBALL_VELOCITY: Vec2 = vec2(512.0, 256.0);
+    // info!("Fireball spawned at {}", origin.truncate());
+
+    let fireball_collision_layers = CollisionLayers::new(
+        [ColliderLayer::Enemy],
+        [ColliderLayer::Default, ColliderLayer::World],
+    );
+
+    let hitbox_collision_layers = CollisionLayers::new(
+        [ColliderLayer::Enemy],
+        [ColliderLayer::Default, ColliderLayer::Player],
+    );
+
+    let fireball_entity = commands
+        .spawn((
+            Fireball,
+            Name::new("Fireball"),
+            effects.fireball.clone(),
+            SpriteAnimation::new(0, 5, 12).looping(),
+            RigidBody::Dynamic,
+            AngularVelocity(-0.4),
+            LinearVelocity(FIREBALL_VELOCITY),
+            LinearDamping(1.0),
+            Transform::from_translation(origin).with_rotation(Quat::from_rotation_z(FRAC_PI_2)),
+            Visibility::Visible,
+            children![(
+                DamageCollider,
+                Sensor,
+                Collider::circle(6.0),
+                hitbox_collision_layers,
+                Transform::from_xyz(0.0, -9.0, 0.0)
+            )],
+        ))
+        .id();
+
+    commands
+        .spawn((
+            FireballCollider,
+            ChildOf(fireball_entity),
+            Collider::circle(6.0),
+            CollisionEventsEnabled,
+            fireball_collision_layers,
+            Transform::from_xyz(0.0, -9.0, 0.0),
+        ))
+        .observe(fireball_land);
+}
+
+fn fireball_land(
+    trigger: Trigger<OnCollisionStart>,
+    q_fireball_colliders: Query<&ChildOf, With<FireballCollider>>,
+    mut commands: Commands,
+) {
+    if let Ok(ChildOf(entity)) = q_fireball_colliders.get(trigger.target()) {
+        commands.entity(*entity).despawn();
+    }
+}
+
 fn conclude_bones(mut commands: Commands) {
     commands.insert_resource(BonesTimer::default());
     commands.insert_resource(Gravity::ZERO);
     commands.set_state(GameState::TopDown);
+}
+
+fn rng_percentage(rng: &mut Entropy<WyRand>, percent: f32) -> bool {
+    rng.next_u32() < ((u32::MAX as f32 + 1.0) * percent.clamp(0.0, 1.0)) as u32
+}
+
+fn random_range(rng: &mut Entropy<WyRand>, low: f32, high: f32) -> f32 {
+    let r = rng.next_u32() as f64 / (u32::MAX as f64 + 1.0);
+    let r = low as f64 + (high as f64 - low as f64) * r;
+    r as f32
 }
