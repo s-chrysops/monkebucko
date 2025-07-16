@@ -18,17 +18,22 @@ use crate::{
 #[derive(Debug, Component)]
 struct OnTopDown;
 
+#[derive(SubStates, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[source(GameState = GameState::TopDown)]
+enum TopDownState {
+    #[default]
+    Loading,
+    Ready,
+}
+
 pub fn topdown_plugin(app: &mut App) {
     app.add_systems(
-        OnTransition {
-            exited:  GameState::Egg,
-            entered: GameState::TopDown,
-        },
-        fade_from_white,
-    )
-    .add_systems(
         OnEnter(GameState::TopDown),
         (setup_camera, setup_map, setup_player),
+    )
+    .add_systems(
+        Update,
+        wait_for_ready.run_if(in_state(TopDownState::Loading)),
     )
     .add_systems(
         Update,
@@ -37,28 +42,21 @@ pub fn topdown_plugin(app: &mut App) {
             update_near_interactables,
             update_player_submerged,
             update_player_z,
-            wait_for_fade.run_if(on_event::<FadeOut>),
-        )
-            .run_if(in_state(GameState::TopDown))
-            .run_if(|current_map: Res<CurrentMap>| current_map.loaded),
-    )
-    .add_systems(
-        Update,
-        (
             player_hop.run_if(not(player_submerged)),
             player_swim.run_if(player_submerged),
             get_topdown_interactions
                 .pipe(play_interactions)
                 .run_if(in_state(InteractionState::None).and(just_pressed_interact)),
         )
-            .run_if(in_state(GameState::TopDown))
-            .run_if(in_state(MovementState::Enabled)),
+            .run_if(in_state(MovementState::Enabled))
+            .run_if(in_state(TopDownState::Ready)),
     )
     .add_systems(
         OnExit(GameState::TopDown),
         (despawn_screen::<OnTopDown>, reset_current_map),
     )
     .add_observer(setup_current_map)
+    .add_sub_state::<TopDownState>()
     .init_resource::<CurrentMap>()
     .init_resource::<PlayerSpawnLocation>()
     .init_resource::<TopdownMapHandles>()
@@ -111,8 +109,8 @@ fn setup_map(
 
 #[derive(Debug, Default, Resource)]
 struct CurrentMap {
-    loaded: bool,
-    index:  TopdownMapIndex,
+    ready: bool,
+    index: TopdownMapIndex,
 
     rect:         Rect,
     tilemap_size: TilemapSize,
@@ -122,7 +120,7 @@ struct CurrentMap {
 }
 
 fn reset_current_map(mut current_map: ResMut<CurrentMap>) {
-    *current_map = CurrentMap::default()
+    *current_map = CurrentMap::default();
 }
 
 const Z_BETWEEN_LAYERS: f32 = 100.0;
@@ -153,17 +151,14 @@ fn setup_current_map(
         }
     });
 
-    current_map.loaded = true;
+    current_map.ready = true;
 
     current_map.rect = tiled_map.rect;
     current_map.tilemap_size = tiled_map.tilemap_size;
 
     current_map.entity = Some(map_entity);
     current_map.water_layer = q_tiled_layers.iter().find_map(|(entity, name)| {
-        match name.as_str() == "TiledMapTileLayerForTileset(water, water)" {
-            true => Some(entity),
-            false => None,
-        }
+        (name.as_str() == "TiledMapTileLayerForTileset(water, water)").then_some(entity)
     });
 }
 
@@ -171,11 +166,11 @@ fn setup_interactables(
     trigger: Trigger<TiledObjectCreated>,
     // mut commands: Commands,
     mut q_interactables: Query<(Entity, &EntityInteraction), With<TiledMapObject>>,
-    mut ready_dialogues: ResMut<DialoguePreload>,
+    mut dialogue_preloader: ResMut<DialoguePreload>,
 ) {
     if let Ok((_entity, EntityInteraction::Dialogue(id))) = q_interactables.get_mut(trigger.entity)
     {
-        ready_dialogues.push(*id);
+        dialogue_preloader.push(*id);
         // commands
         //     .entity(entity)
         //     .insert(PICKABLE)
@@ -208,8 +203,22 @@ fn setup_collider_bodies(
     commands.entity(trigger.entity).insert(RigidBody::Static);
 }
 
-fn wait_for_fade(mut movement_state: ResMut<NextState<MovementState>>) {
-    movement_state.set(MovementState::Enabled);
+fn wait_for_ready(
+    mut e_reader: EventReader<FadeOut>,
+    current_map: Res<CurrentMap>,
+    mut topdown_state: ResMut<NextState<TopDownState>>,
+    mut movement_state: ResMut<NextState<MovementState>>,
+    mut fade_finished: Local<bool>,
+) {
+    if e_reader.read().count() > 0 {
+        *fade_finished = true;
+    }
+
+    if *fade_finished && current_map.ready {
+        *fade_finished = false;
+        topdown_state.set(TopDownState::Ready);
+        movement_state.set(MovementState::Enabled);
+    }
 }
 
 const TOTAL_TOPDOWN_MAPS: usize = 7;

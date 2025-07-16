@@ -1,7 +1,12 @@
 use std::f32::consts::*;
 
 use bevy::{
-    animation::*, color::palettes::css::*, core_pipeline::{bloom::Bloom, tonemapping::Tonemapping}, input::mouse::AccumulatedMouseMotion, math::u8, prelude::*
+    animation::*,
+    color::palettes::css::*,
+    core_pipeline::{bloom::Bloom, tonemapping::Tonemapping},
+    input::mouse::AccumulatedMouseMotion,
+    math::u8,
+    prelude::*,
 };
 use bevy_rand::prelude::*;
 use rand_core::RngCore;
@@ -49,7 +54,11 @@ pub fn egg_plugin(app: &mut App) {
     )
     .add_systems(
         OnExit(GameState::Egg),
-        (despawn_screen::<OnEggScene>, cursor_ungrab),
+        (
+            despawn_screen::<OnEggScene>,
+            cursor_ungrab,
+            effects::fade_from_white,
+        ),
     )
     .add_systems(
         Update,
@@ -1135,7 +1144,6 @@ fn egg_special(
         EggSpecialState::Fading => {
             if player_animation.all_finished() {
                 commands.set_state(GameState::TopDown);
-                commands.set_state(MovementState::Enabled);
             }
         }
     }
