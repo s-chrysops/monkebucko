@@ -59,6 +59,7 @@ pub fn game_plugin(app: &mut App) {
         .add_plugins((bones_plugin, egg_plugin, topdown_plugin))
         .add_systems(OnEnter(AppState::Game), game_setup)
         .add_systems(PreUpdate, get_user_input)
+        .init_resource::<AssetTracker>()
         .init_resource::<UserInput>()
         .init_state::<GameState>()
         .init_state::<MovementState>()
@@ -67,6 +68,32 @@ pub fn game_plugin(app: &mut App) {
 
 fn game_setup(mut commands: Commands) {
     commands.set_state(GameState::Egg);
+}
+
+#[derive(Debug, Default, Deref, DerefMut, Resource)]
+struct AssetTracker {
+    #[deref]
+    assets: Vec<UntypedHandle>,
+    count:  u8,
+}
+
+impl AssetTracker {
+    const CONFIRMATION_FRAMES: u8 = 4;
+    fn is_ready(&mut self, asset_server: Res<'_, AssetServer>) -> bool {
+        if !self.is_empty() {
+            self.count = 0;
+            self.retain(|asset| {
+                // remove loaded assets from tracker
+                asset_server
+                    .get_recursive_dependency_load_state(asset)
+                    .is_none_or(|state| !state.is_loaded())
+            });
+            false
+        } else {
+            self.count += 1;
+            self.count == Self::CONFIRMATION_FRAMES
+        }
+    }
 }
 
 #[derive(Debug, Reflect)]

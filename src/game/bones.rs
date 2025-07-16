@@ -88,25 +88,10 @@ pub fn bones_plugin(app: &mut App) {
     //         .run_if(state_changed::<BonesState>),
     // )
     .add_sub_state::<BonesState>()
-    .init_resource::<BonesAssetTracker>()
     .init_resource::<BonesTimer>()
     .register_type::<BonesHealth>()
     .register_type::<Grounded>()
     .register_type::<UckoState>();
-}
-
-#[derive(Debug, Default, Deref, DerefMut, Resource)]
-struct BonesAssetTracker(Vec<UntypedHandle>);
-
-impl BonesAssetTracker {
-    fn loaded(&self, asset_server: Res<'_, AssetServer>) -> bool {
-        self.iter().all(|handle| {
-            matches!(
-                asset_server.get_load_state(handle.id()),
-                Some(bevy::asset::LoadState::Loaded)
-            )
-        })
-    }
 }
 
 fn setup_camera(mut commands: Commands) {
@@ -150,7 +135,7 @@ enum ColliderLayer {
 
 fn setup_map(
     mut commands: Commands,
-    mut asset_tracker: ResMut<BonesAssetTracker>,
+    mut asset_tracker: ResMut<AssetTracker>,
     asset_server: Res<AssetServer>,
 ) {
     let bones_map_handle = asset_server.load("maps/bones.tmx");
@@ -206,7 +191,7 @@ enum PlayerState {
 
 fn setup_player(
     mut commands: Commands,
-    mut asset_tracker: ResMut<BonesAssetTracker>,
+    mut asset_tracker: ResMut<AssetTracker>,
     asset_server: Res<AssetServer>,
 ) {
     const PLAYER_START: Vec3 = vec3(384.0, 180.0, 1.0);
@@ -299,7 +284,7 @@ const ENEMY_AMOUNT: u8 = 3;
 
 fn setup_enemies(
     mut commands: Commands,
-    mut asset_tracker: ResMut<BonesAssetTracker>,
+    mut asset_tracker: ResMut<AssetTracker>,
     asset_server: Res<AssetServer>,
     mut rng: GlobalEntropy<WyRand>,
 ) {
@@ -383,7 +368,7 @@ struct BonesEffects {
 
 fn setup_sprite_effects(
     mut commands: Commands,
-    mut asset_tracker: ResMut<BonesAssetTracker>,
+    mut asset_tracker: ResMut<AssetTracker>,
     asset_server: Res<AssetServer>,
 ) {
     let fireball_image = asset_server.load("sprites/effects/fireball.png");
@@ -399,13 +384,12 @@ fn setup_sprite_effects(
 }
 
 fn wait_till_loaded(
-    mut bones_state: ResMut<NextState<BonesState>>,
-    mut gravity: ResMut<Gravity>,
-    mut asset_tracker: ResMut<BonesAssetTracker>,
+    mut asset_tracker: ResMut<AssetTracker>,
     asset_server: Res<AssetServer>,
+    mut gravity: ResMut<Gravity>,
+    mut bones_state: ResMut<NextState<BonesState>>,
 ) {
-    if asset_tracker.loaded(asset_server) {
-        asset_tracker.clear();
+    if asset_tracker.is_ready(asset_server) {
         *gravity = Gravity(Vec2::NEG_Y * 9.81 * 32.0);
         bones_state.set(BonesState::Playing);
     }
