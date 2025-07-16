@@ -6,7 +6,6 @@ use bevy::{
     core_pipeline::{bloom::Bloom, tonemapping::Tonemapping},
     input::mouse::AccumulatedMouseMotion,
     prelude::*,
-    window::{CursorGrabMode, PrimaryWindow},
 };
 use bevy_persistent::Persistent;
 use bevy_rand::prelude::*;
@@ -855,19 +854,19 @@ impl FromWorld for StarResources {
     }
 }
 
-fn generate_star(rng: &mut GlobalEntropy<WyRand>, count: usize) -> (f32, usize, Transform) {
+fn generate_star(rng: &mut Entropy<WyRand>, count: usize) -> (f32, usize, Transform) {
     // Star's angle on the half-cylinder skybox
-    let angle = random_range(rng.next_u32(), 0.0, std::f32::consts::PI);
+    let angle = random_range(rng, 0.0, std::f32::consts::PI);
 
     // Static stars
     let speed = match count < BACK_STAR_AMOUNT {
         true => 0.0,
-        false => random_range(rng.next_u32(), MIN_STAR_SPEED.sqrt(), MAX_STAR_SPEED.sqrt()).powi(2),
+        false => random_range(rng, MIN_STAR_SPEED.sqrt(), MAX_STAR_SPEED.sqrt()).powi(2),
     };
 
     // Initial stars
     let height = match count < MAX_STAR_AMOUNT {
-        true => random_range(rng.next_u32(), MIN_STAR_HEIGHT, MAX_STAR_HEIGHT),
+        true => random_range(rng, MIN_STAR_HEIGHT, MAX_STAR_HEIGHT),
         false => MAX_STAR_HEIGHT,
     };
 
@@ -1412,24 +1411,4 @@ fn get_egg_interactions(
         < INTERACTION_RANGE;
 
     player_in_range.then_some(entity_interaction.clone())
-}
-
-fn cursor_grab(q_windows: Single<&mut Window, With<PrimaryWindow>>) {
-    let mut primary_window = q_windows.into_inner();
-    primary_window.cursor_options.grab_mode = CursorGrabMode::Locked;
-    primary_window.cursor_options.visible = false;
-}
-
-fn cursor_ungrab(q_windows: Single<&mut Window, With<PrimaryWindow>>) {
-    let mut primary_window = q_windows.into_inner();
-    primary_window.cursor_options.grab_mode = CursorGrabMode::None;
-    primary_window.cursor_options.visible = true;
-}
-
-// Returns an f32 between two from a randomly generated u32
-// From quad_rand <3
-fn random_range(rand: u32, low: f32, high: f32) -> f32 {
-    let r = rand as f64 / (u32::MAX as f64 + 1.0);
-    let r = low as f64 + (high as f64 - low as f64) * r;
-    r as f32
 }

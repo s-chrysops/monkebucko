@@ -5,7 +5,6 @@ use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy_ecs_tiled::prelude::*;
 use bevy_rand::prelude::*;
-use rand_core::RngCore;
 
 use crate::{
     RENDER_LAYER_WORLD, WINDOW_HEIGHT, WINDOW_WIDTH, animation::SpriteAnimation, despawn_screen,
@@ -801,14 +800,4 @@ fn conclude_bones(mut commands: Commands) {
     commands.insert_resource(BonesTimer::default());
     commands.insert_resource(Gravity::ZERO);
     commands.set_state(GameState::TopDown);
-}
-
-fn rng_percentage(rng: &mut Entropy<WyRand>, percent: f32) -> bool {
-    rng.next_u32() < ((u32::MAX as f32 + 1.0) * percent.clamp(0.0, 1.0)) as u32
-}
-
-fn random_range(rng: &mut Entropy<WyRand>, low: f32, high: f32) -> f32 {
-    let r = rng.next_u32() as f64 / (u32::MAX as f64 + 1.0);
-    let r = low as f64 + (high as f64 - low as f64) * r;
-    r as f32
 }

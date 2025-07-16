@@ -1,6 +1,12 @@
-use bevy::{color::palettes::css::*, prelude::*};
+use bevy::{
+    color::palettes::css::*,
+    prelude::*,
+    window::{CursorGrabMode, PrimaryWindow},
+};
 use bevy_persistent::Persistent;
+use bevy_rand::prelude::*;
 use bevy_text_animation::*;
+use rand_core::RngCore;
 
 use super::{AppState, Settings};
 use effects::effects_plugin;
@@ -60,7 +66,7 @@ pub fn game_plugin(app: &mut App) {
 }
 
 fn game_setup(mut commands: Commands) {
-    commands.set_state(GameState::TopDown);
+    commands.set_state(GameState::Egg);
 }
 
 #[derive(Debug, Reflect)]
@@ -165,4 +171,28 @@ fn pressed_advance_key(
         KeyCode::Enter,
         KeyCode::NumpadEnter,
     ])
+}
+
+fn cursor_grab(q_windows: Single<&mut Window, With<PrimaryWindow>>) {
+    let mut primary_window = q_windows.into_inner();
+    primary_window.cursor_options.grab_mode = CursorGrabMode::Locked;
+    primary_window.cursor_options.visible = false;
+}
+
+fn cursor_ungrab(q_windows: Single<&mut Window, With<PrimaryWindow>>) {
+    let mut primary_window = q_windows.into_inner();
+    primary_window.cursor_options.grab_mode = CursorGrabMode::None;
+    primary_window.cursor_options.visible = true;
+}
+
+fn rng_percentage(rng: &mut Entropy<WyRand>, percent: f32) -> bool {
+    rng.next_u32() < ((u32::MAX as f32 + 1.0) * percent.clamp(0.0, 1.0)) as u32
+}
+
+// Returns an f32 between two from a randomly generated u32
+// From quad_rand <3
+fn random_range(rng: &mut Entropy<WyRand>, low: f32, high: f32) -> f32 {
+    let r = rng.next_u32() as f64 / (u32::MAX as f64 + 1.0);
+    let r = low as f64 + (high as f64 - low as f64) * r;
+    r as f32
 }
