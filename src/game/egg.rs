@@ -1,18 +1,13 @@
 use std::f32::consts::*;
 
 use bevy::{
-    animation::*,
-    color::palettes::css::*,
-    core_pipeline::{bloom::Bloom, tonemapping::Tonemapping},
-    input::mouse::AccumulatedMouseMotion,
-    prelude::*,
+    animation::*, color::palettes::css::*, core_pipeline::{bloom::Bloom, tonemapping::Tonemapping}, input::mouse::AccumulatedMouseMotion, math::u8, prelude::*
 };
-use bevy_persistent::Persistent;
 use bevy_rand::prelude::*;
 use rand_core::RngCore;
 
 use crate::{
-    RENDER_LAYER_OVERLAY, RENDER_LAYER_WORLD, Settings,
+    RENDER_LAYER_OVERLAY, RENDER_LAYER_WORLD,
     animation::{SpriteAnimation, SpriteAnimationFinished},
     auto_scaling::AspectRatio,
     despawn_screen,
@@ -37,14 +32,7 @@ struct CameraSensitivity(Vec2);
 
 impl Default for CameraSensitivity {
     fn default() -> Self {
-        Self(
-            // These factors are just arbitrary mouse sensitivity values.
-            // It's often nicer to have a faster horizontal sensitivity than vertical.
-            // We use a component for them so that we can make them user-configurable at runtime
-            // for accessibility reasons.
-            // It also allows you to inspect them in an editor if you `Reflect` the component.
-            Vec2::new(0.003, 0.002),
-        )
+        Self(vec2(0.003, 0.002))
     }
 }
 
@@ -61,33 +49,28 @@ pub fn egg_plugin(app: &mut App) {
     )
     .add_systems(
         OnExit(GameState::Egg),
+        (despawn_screen::<OnEggScene>, cursor_ungrab),
+    )
+    .add_systems(
+        Update,
         (
-            despawn_screen::<OnEggScene>,
-            despawn_screen::<Temp>,
-            cursor_ungrab,
-        ),
-    )
-    .add_systems(Update, move_stars.run_if(in_state(GameState::Egg)))
-    .add_systems(
-        Update,
-        move_player
-            .run_if(in_state(GameState::Egg))
-            .run_if(in_state(MovementState::Enabled)),
-    )
-    .add_systems(
-        Update,
-        get_egg_interactions
-            .pipe(play_interactions)
-            .run_if(in_state(GameState::Egg))
-            .run_if(in_state(MovementState::Enabled))
-            .run_if(just_pressed_interact),
+            move_stars,
+            (
+                move_player,
+                get_egg_interactions
+                    .pipe(play_interactions)
+                    .run_if(just_pressed_interact),
+            )
+                .run_if(in_state(MovementState::Enabled)),
+        )
+            .run_if(in_state(GameState::Egg)),
     )
     .add_systems(OnEnter(EggState::Special), setup_camera_movements)
     .add_systems(
         Update,
         (egg_special, update_crack).run_if(in_state(EggState::Special)),
     )
-    .init_state::<EggState>()
+    .add_sub_state::<EggState>()
     .init_resource::<StarResources>();
 }
 
@@ -124,65 +107,6 @@ fn spawn_player(mut commands: Commands) {
             RENDER_LAYER_WORLD,
         )],
     ));
-}
-
-const ROOM_BOUNDARY_MIN: Vec3 = Vec3::splat(-1.35);
-const ROOM_BOUNDARY_MAX: Vec3 = Vec3::splat(1.35);
-
-const PLAYER_STEP: f32 = 0.04;
-
-fn move_player(
-    settings: Res<Persistent<Settings>>,
-    accumulated_mouse_motion: Res<AccumulatedMouseMotion>,
-    user_input: Res<UserInput>,
-    key_input: Res<ButtonInput<KeyCode>>,
-    player: Single<(&mut Transform, &CameraSensitivity), With<Player>>,
-) {
-    let (mut transform, camera_sensitivity) = player.into_inner();
-
-    let mouse_delta = accumulated_mouse_motion.delta;
-    let (yaw, pitch, roll) = transform.rotation.to_euler(EulerRot::YXZ);
-
-    if mouse_delta != Vec2::ZERO {
-        // Note that we are not multiplying by delta_time here.
-        // The reason is that for mouse movement, we already get the full movement that happened since the last frame.
-        // This means that if we multiply by delta_time, we will get a smaller rotation than intended by the user.
-        // This situation is reversed when reading e.g. analog input from a gamepad however, where the same rules
-        // as for keyboard input apply. Such an input should be multiplied by delta_time to get the intended rotation
-        // independent of the framerate.
-        let delta_yaw = -mouse_delta.x * camera_sensitivity.x;
-        let delta_pitch = -mouse_delta.y * camera_sensitivity.y;
-
-        let yaw = yaw + delta_yaw;
-
-        // If the pitch was ±¹⁄₂ π, the camera would look straight up or down.
-        // When the user wants to move the camera back to the horizon, which way should the camera face?
-        // The camera has no way of knowing what direction was "forward" before landing in that extreme position,
-        // so the direction picked will for all intents and purposes be arbitrary.
-        // Another issue is that for mathematical reasons, the yaw will effectively be flipped when the pitch is at the extremes.
-        // To not run into these issues, we clamp the pitch to a safe range.
-        const PITCH_LIMIT: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
-        let pitch = (pitch + delta_pitch).clamp(-PITCH_LIMIT, PITCH_LIMIT);
-
-        transform.rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll);
-    }
-
-    if user_input.moving() {
-        const VECTOR_MAP: Vec2 = vec2(0.5 * PLAYER_STEP, -PLAYER_STEP);
-
-        let translation = Vec2::from_angle(-yaw)
-            .rotate(user_input.last_valid_direction.as_vec2() * VECTOR_MAP)
-            .extend(0.0)
-            .xzy();
-
-        let next_position = transform.translation + translation;
-
-        transform.translation = next_position.clamp(ROOM_BOUNDARY_MIN, ROOM_BOUNDARY_MAX);
-    }
-
-    if key_input.pressed(settings.jump) {
-        info!("JUMP!");
-    }
 }
 
 #[derive(Debug, Component)]
@@ -274,12 +198,6 @@ fn spawn_world(
         Transform::from_xyz(-0.3, 0.16, -1.0),
     ));
 
-    // commands.spawn((
-    //     Mesh3d(cube),
-    //     MeshMaterial3d(material),
-    //     Transform::from_xyz(0.75, 1.75, 0.0),
-    // ));
-
     // Star light
     commands.spawn((
         OnEggScene,
@@ -332,36 +250,51 @@ fn spawn_world(
         ))
         .observe(over_interactables)
         .observe(out_interactables);
+}
 
-    // commands
-    //     .spawn((
-    //         Mesh3d(meshes.add(Cuboid::new(0.5, 0.5, 0.5))),
-    //         MeshMaterial3d(materials.add(Color::WHITE)),
-    //         Transform::from_xyz(-1.0, 1.0, 0.5),
-    //     ))
-    //     .observe(|_over: Trigger<Pointer<Over>>| {
-    //         info!("Over cube");
-    //     });
+const ROOM_BOUNDARY: Vec3 = Vec3::splat(1.3);
+const PLAYER_STEP: f32 = 0.04;
 
-    commands.spawn((
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Percent(6.0),
-            right: Val::Percent(6.0),
-            ..default()
-        },
-        children![(
-            EggSpecialDebugText,
-            Text::new("Punching"),
-            TextFont {
-                font_size: 16.0,
-                ..default()
-            },
-            TextColor(WHITE.into()),
-            Visibility::Hidden,
-        )],
-        Visibility::default(),
-    ));
+fn move_player(
+    accumulated_mouse_motion: Res<AccumulatedMouseMotion>,
+    user_input: Res<UserInput>,
+    player: Single<(&mut Transform, &CameraSensitivity), With<Player>>,
+) {
+    let (mut transform, camera_sensitivity) = player.into_inner();
+
+    let mouse_delta = accumulated_mouse_motion.delta;
+    let (yaw, pitch, roll) = transform.rotation.to_euler(EulerRot::YXZ);
+
+    if mouse_delta != Vec2::ZERO {
+        let delta_yaw = -mouse_delta.x * camera_sensitivity.x;
+        let delta_pitch = -mouse_delta.y * camera_sensitivity.y;
+
+        let yaw = yaw + delta_yaw;
+
+        // If the pitch was ±¹⁄₂ π, the camera would look straight up or down.
+        // When the user wants to move the camera back to the horizon, which way should the camera face?
+        // The camera has no way of knowing what direction was "forward" before landing in that extreme position,
+        // so the direction picked will for all intents and purposes be arbitrary.
+        // Another issue is that for mathematical reasons, the yaw will effectively be flipped when the pitch is at the extremes.
+        // To not run into these issues, we clamp the pitch to a safe range.
+        const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.01;
+        let pitch = (pitch + delta_pitch).clamp(-PITCH_LIMIT, PITCH_LIMIT);
+
+        transform.rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll);
+    }
+
+    if user_input.moving() {
+        const VECTOR_MAP: Vec2 = vec2(0.5 * PLAYER_STEP, -PLAYER_STEP);
+
+        let translation = Vec2::from_angle(-yaw)
+            .rotate(user_input.last_valid_direction.as_vec2() * VECTOR_MAP)
+            .extend(0.0)
+            .xzy();
+
+        let next_position = transform.translation + translation;
+
+        transform.translation = next_position.clamp(-ROOM_BOUNDARY, ROOM_BOUNDARY);
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -379,13 +312,7 @@ struct EggSpecialElementInfo {
     out_node: AnimationNodeIndex,
 }
 
-fn spawn_egg_special_elements(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut animation_graphs: ResMut<Assets<AnimationGraph>>,
-    mut animation_clips: ResMut<Assets<AnimationClip>>,
-    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
-) {
+fn spawn_egg_special_elements(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Default animation duration: 1.0 second
     // const MEDIUM_DURATION: f32 = 0.5;
     const FAST_DURATION: f32 = 0.125;
@@ -395,7 +322,7 @@ fn spawn_egg_special_elements(
 
     let punch_image: Handle<Image> = asset_server.load("sprites/punch.png");
     let punch_layout = TextureAtlasLayout::from_grid(UVec2::splat(256), 2, 1, None, None);
-    let punch_layout_handle = texture_atlas_layouts.add(punch_layout);
+    let punch_layout_handle = asset_server.add(punch_layout);
 
     {
         let punch_lr_sprite = Sprite {
@@ -419,35 +346,34 @@ fn spawn_egg_special_elements(
         let punch_lower_in = Vec3::new(0.0, -64.0, 0.0);
         let punch_lower_out = Vec3::new(0.0, -512.0, 0.0);
 
-        let punch_lower_clip_in = animation_clips.add({
-            let mut clip = AnimationClip::default();
-            clip.add_curve_to_target(
-                punch_lower_id,
-                AnimatableCurve::new(
-                    animated_field!(Transform::translation),
-                    EasingCurve::new(punch_lower_out, punch_lower_in, EaseFunction::BackOut),
-                ),
-            );
-            clip
-        });
+        let (punch_lower_graph, punch_lower_nodes) = AnimationGraph::from_clips([
+            asset_server.add({
+                let mut punch_lower_in_clip = AnimationClip::default();
+                punch_lower_in_clip.add_curve_to_target(
+                    punch_lower_id,
+                    AnimatableCurve::new(
+                        animated_field!(Transform::translation),
+                        EasingCurve::new(punch_lower_out, punch_lower_in, EaseFunction::BackOut),
+                    ),
+                );
+                punch_lower_in_clip
+            }),
+            asset_server.add({
+                let mut punch_lower_out_clip = AnimationClip::default();
+                punch_lower_out_clip.add_curve_to_target(
+                    punch_lower_id,
+                    AnimatableCurve::new(
+                        animated_field!(Transform::translation),
+                        EasingCurve::new(punch_lower_in, punch_lower_out, EaseFunction::Linear)
+                            .reparametrize_linear(Interval::new(0.0, FAST_DURATION).unwrap())
+                            .unwrap(),
+                    ),
+                );
+                punch_lower_out_clip
+            }),
+        ]);
 
-        let punch_lower_clip_out = animation_clips.add({
-            let mut clip = AnimationClip::default();
-            clip.add_curve_to_target(
-                punch_lower_id,
-                AnimatableCurve::new(
-                    animated_field!(Transform::translation),
-                    EasingCurve::new(punch_lower_in, punch_lower_out, EaseFunction::Linear)
-                        .reparametrize_linear(Interval::new(0.0, FAST_DURATION).unwrap())
-                        .unwrap(),
-                ),
-            );
-            clip
-        });
-
-        let (punch_lower_graph, punch_lower_nodes) =
-            AnimationGraph::from_clips([punch_lower_clip_in, punch_lower_clip_out]);
-        let punch_lower_graph_handle = animation_graphs.add(punch_lower_graph);
+        let punch_lower_graph_handle = asset_server.add(punch_lower_graph);
 
         let punch_lower_parts = [
             commands
@@ -530,51 +456,50 @@ fn spawn_egg_special_elements(
         let punch_ul_in = Vec3::new(-280.0, 128.0, Z_SPRITES + 0.1);
         let punch_ul_out = Vec3::new(-636.0, 128.0, Z_SPRITES + 0.1);
 
-        let punch_upper_clip_in = animation_clips.add({
-            let mut clip = AnimationClip::default();
-            clip.add_curve_to_target(
-                punch_ur_id,
-                AnimatableCurve::new(
-                    animated_field!(Transform::translation),
-                    EasingCurve::new(punch_ur_out, punch_ur_in, EaseFunction::QuadraticOut),
-                ),
-            );
-            clip.add_curve_to_target(
-                punch_ul_id,
-                AnimatableCurve::new(
-                    animated_field!(Transform::translation),
-                    EasingCurve::new(punch_ul_out, punch_ul_in, EaseFunction::QuadraticOut),
-                ),
-            );
-            clip
-        });
+        let (punch_upper_graph, punch_upper_nodes) = AnimationGraph::from_clips([
+            asset_server.add({
+                let mut punch_upper_in_clip = AnimationClip::default();
+                punch_upper_in_clip.add_curve_to_target(
+                    punch_ur_id,
+                    AnimatableCurve::new(
+                        animated_field!(Transform::translation),
+                        EasingCurve::new(punch_ur_out, punch_ur_in, EaseFunction::QuadraticOut),
+                    ),
+                );
+                punch_upper_in_clip.add_curve_to_target(
+                    punch_ul_id,
+                    AnimatableCurve::new(
+                        animated_field!(Transform::translation),
+                        EasingCurve::new(punch_ul_out, punch_ul_in, EaseFunction::QuadraticOut),
+                    ),
+                );
+                punch_upper_in_clip
+            }),
+            asset_server.add({
+                let mut punch_upper_out_clip = AnimationClip::default();
+                punch_upper_out_clip.add_curve_to_target(
+                    punch_ur_id,
+                    AnimatableCurve::new(
+                        animated_field!(Transform::translation),
+                        EasingCurve::new(punch_ur_in, punch_ur_out, EaseFunction::Linear)
+                            .reparametrize_linear(Interval::new(0.0, FAST_DURATION).unwrap())
+                            .unwrap(),
+                    ),
+                );
+                punch_upper_out_clip.add_curve_to_target(
+                    punch_ul_id,
+                    AnimatableCurve::new(
+                        animated_field!(Transform::translation),
+                        EasingCurve::new(punch_ul_in, punch_ul_out, EaseFunction::Linear)
+                            .reparametrize_linear(Interval::new(0.0, FAST_DURATION).unwrap())
+                            .unwrap(),
+                    ),
+                );
+                punch_upper_out_clip
+            }),
+        ]);
 
-        let punch_upper_clip_out = animation_clips.add({
-            let mut clip = AnimationClip::default();
-            clip.add_curve_to_target(
-                punch_ur_id,
-                AnimatableCurve::new(
-                    animated_field!(Transform::translation),
-                    EasingCurve::new(punch_ur_in, punch_ur_out, EaseFunction::Linear)
-                        .reparametrize_linear(Interval::new(0.0, FAST_DURATION).unwrap())
-                        .unwrap(),
-                ),
-            );
-            clip.add_curve_to_target(
-                punch_ul_id,
-                AnimatableCurve::new(
-                    animated_field!(Transform::translation),
-                    EasingCurve::new(punch_ul_in, punch_ul_out, EaseFunction::Linear)
-                        .reparametrize_linear(Interval::new(0.0, FAST_DURATION).unwrap())
-                        .unwrap(),
-                ),
-            );
-            clip
-        });
-
-        let (punch_upper_graph, punch_upper_nodes) =
-            AnimationGraph::from_clips([punch_upper_clip_in, punch_upper_clip_out]);
-        let punch_upper_graph_handle = animation_graphs.add(punch_upper_graph);
+        let punch_upper_graph_handle = asset_server.add(punch_upper_graph);
 
         let punch_upper_parts = [
             commands
@@ -719,63 +644,63 @@ fn spawn_egg_special_elements(
             )>,
         ) = pre_elements
             .into_iter()
-            .map(
-                |PreElement {
-                     name,
-                     path,
-                     layout,
-                     flip_x,
-                     custom_size,
-                     rotation,
-                     translation_in,
-                     translation_out,
-                 }| {
-                    let name = Name::new(name);
-                    let target_id = AnimationTargetId::from_name(&name);
+            .map(|pre_element| {
+                let PreElement {
+                    name,
+                    path,
+                    layout,
+                    flip_x,
+                    custom_size,
+                    rotation,
+                    translation_in,
+                    translation_out,
+                } = pre_element;
 
-                    let element_entity = commands
-                        .spawn((
-                            Sprite {
-                                image: asset_server.load(path),
-                                texture_atlas: Some(TextureAtlas {
-                                    layout: texture_atlas_layouts.add(layout),
-                                    index:  0,
-                                }),
-                                flip_x,
-                                custom_size,
-                                ..default()
-                            },
-                            SpriteAnimation::set_frame(0),
-                            AnimationTarget {
-                                id:     target_id,
-                                player: guns,
-                            },
-                            Transform::from_translation(translation_out).with_rotation(rotation),
-                            Visibility::default(),
-                            RENDER_LAYER_OVERLAY,
-                            name,
-                        ))
-                        .id();
+                let name = Name::new(name);
+                let target_id = AnimationTargetId::from_name(&name);
 
-                    let in_out_curves = (
-                        target_id,
-                        AnimatableCurve::new(
-                            animated_field!(Transform::translation),
-                            EasingCurve::new(translation_out, translation_in, EaseFunction::Linear)
-                                .reparametrize_linear(Interval::new(0.0, FAST_DURATION).unwrap())
-                                .unwrap(),
-                        ),
-                        AnimatableCurve::new(
-                            animated_field!(Transform::translation),
-                            EasingCurve::new(translation_in, translation_out, EaseFunction::Linear)
-                                .reparametrize_linear(Interval::new(0.0, FAST_DURATION).unwrap())
-                                .unwrap(),
-                        ),
-                    );
+                let element_entity = commands
+                    .spawn((
+                        Sprite {
+                            image: asset_server.load(path),
+                            texture_atlas: Some(TextureAtlas {
+                                layout: asset_server.add(layout),
+                                index:  0,
+                            }),
+                            flip_x,
+                            custom_size,
+                            ..default()
+                        },
+                        SpriteAnimation::set_frame(0),
+                        AnimationTarget {
+                            id:     target_id,
+                            player: guns,
+                        },
+                        Transform::from_translation(translation_out).with_rotation(rotation),
+                        Visibility::default(),
+                        RENDER_LAYER_OVERLAY,
+                        name,
+                    ))
+                    .id();
 
-                    (element_entity, in_out_curves)
-                },
-            )
+                let in_out_curves = (
+                    target_id,
+                    AnimatableCurve::new(
+                        animated_field!(Transform::translation),
+                        EasingCurve::new(translation_out, translation_in, EaseFunction::Linear)
+                            .reparametrize_linear(Interval::new(0.0, FAST_DURATION).unwrap())
+                            .unwrap(),
+                    ),
+                    AnimatableCurve::new(
+                        animated_field!(Transform::translation),
+                        EasingCurve::new(translation_in, translation_out, EaseFunction::Linear)
+                            .reparametrize_linear(Interval::new(0.0, FAST_DURATION).unwrap())
+                            .unwrap(),
+                    ),
+                );
+
+                (element_entity, in_out_curves)
+            })
             .unzip();
 
         let guns_clips = in_out_curves.into_iter().fold(
@@ -795,8 +720,8 @@ fn spawn_egg_special_elements(
         );
 
         let (guns_graph, guns_nodes) =
-            AnimationGraph::from_clips(guns_clips.map(|clip| animation_clips.add(clip)));
-        let guns_graph_handle = animation_graphs.add(guns_graph);
+            AnimationGraph::from_clips(guns_clips.map(|clip| asset_server.add(clip)));
+        let guns_graph_handle = asset_server.add(guns_graph);
 
         commands.entity(guns).add_children(&elements).insert((
             EggSpecialElementInfo {
@@ -923,12 +848,6 @@ fn move_stars(
         });
 }
 
-#[derive(Debug, Component)]
-struct Temp;
-
-#[derive(Debug, Component)]
-struct EggSpecialDebugText;
-
 #[derive(Debug, Deref, Component)]
 struct ExitNode(AnimationNodeIndex);
 
@@ -947,11 +866,11 @@ fn setup_camera_movements(
 
     let player_target_name = Name::new("Player");
     let player_target_id = AnimationTargetId::from_name(&player_target_name);
+    let animation_domain = interval(0.0, EASE_DURATION).unwrap();
 
     let (animation_graph, animation_node_index) = AnimationGraph::from_clips([
         animation_clips.add({
             let mut ease_into_frame_clip = AnimationClip::default();
-            let animation_domain = interval(0.0, EASE_DURATION).unwrap();
             ease_into_frame_clip.add_curve_to_target(
                 player_target_id,
                 AnimatableCurve::new(
@@ -982,7 +901,6 @@ fn setup_camera_movements(
         }),
         animation_clips.add({
             let mut ease_into_crack_clip = AnimationClip::default();
-            let animation_domain = interval(0.0, EASE_DURATION).unwrap();
             ease_into_crack_clip.add_curve_to_target(
                 player_target_id,
                 AnimatableCurve::new(
@@ -1022,9 +940,9 @@ fn setup_camera_movements(
 enum EggSpecialState {
     #[default]
     Easing,
-    Force1,
-    Force2,
-    Force3,
+    Punch,
+    PunchRapid,
+    MorePunchRapid,
     Violence,
     Fading,
 }
@@ -1032,50 +950,30 @@ enum EggSpecialState {
 #[allow(clippy::too_many_arguments)] // lmao
 fn egg_special(
     mut commands: Commands,
-    player: Single<(&mut Transform, &mut AnimationPlayer, &ExitNode), With<Player>>,
+    player: Single<(&mut AnimationPlayer, &ExitNode), With<Player>>,
     mut controllers: Query<(&EggSpecialElementInfo, &mut AnimationPlayer), Without<Player>>,
     mut q_sprite_animations: Query<&mut SpriteAnimation>,
     crack: Single<&Health, With<Crack>>,
-    debug_text: Single<(&mut Visibility, &mut Text), With<EggSpecialDebugText>>,
-    key_input: Res<ButtonInput<KeyCode>>,
-    settings: Res<Persistent<Settings>>,
+    user_input: Res<UserInput>,
     mut state: Local<EggSpecialState>,
     mut right_left: Local<bool>,
 ) {
-    let (mut _player_transform, mut player_animation, fade_node) = player.into_inner();
+    let (mut player_animation, exit_node) = player.into_inner();
 
     match *state {
         EggSpecialState::Easing => {
             if player_animation.all_finished() {
-                commands.spawn((
-                    Temp,
-                    Node {
-                        position_type: PositionType::Absolute,
-                        top: Val::Percent(6.0),
-                        left: Val::Percent(6.0),
-                        ..default()
-                    },
-                    children![(
-                        Text::new("Force 1"),
-                        TextFont {
-                            font_size: 16.0,
-                            ..default()
-                        },
-                        TextColor(WHITE.into()),
-                    )],
-                ));
-
                 let (info, mut player) = controllers
                     .iter_mut()
                     .find(|(info, _player)| info.id == EggSpecialElementId::PunchLower)
                     .unwrap();
                 player.play(info.in_node);
 
-                *state = EggSpecialState::Force1;
+                *state = EggSpecialState::Punch;
             }
         }
-        EggSpecialState::Force1 => {
-            if key_input.just_pressed(settings.interact) {
+        EggSpecialState::Punch => {
+            if matches!(user_input.interact, KeyState::Press) {
                 let (info, _player) = controllers
                     .iter()
                     .find(|(info, _player)| info.id == EggSpecialElementId::PunchLower)
@@ -1084,8 +982,8 @@ fn egg_special(
                 *q_sprite_animations
                     .get_mut(info.parts[*right_left as usize])
                     .unwrap() = SpriteAnimation::set_frame(1);
-            } else if key_input.just_released(settings.interact)
-                || key_input.just_pressed(settings.swap)
+            } else if matches!(user_input.interact, KeyState::Release)
+                || matches!(user_input.swap, KeyState::Press)
             {
                 let (info, _player) = controllers
                     .iter()
@@ -1099,29 +997,12 @@ fn egg_special(
                 *right_left ^= true;
             }
 
-            if key_input.just_pressed(settings.swap) {
-                commands.spawn((
-                    Temp,
-                    Node {
-                        position_type: PositionType::Absolute,
-                        top: Val::Percent(9.0),
-                        left: Val::Percent(6.0),
-                        ..default()
-                    },
-                    children![(
-                        Text::new("Force 2"),
-                        TextFont {
-                            font_size: 16.0,
-                            ..default()
-                        },
-                        TextColor(WHITE.into()),
-                    )],
-                ));
-                *state = EggSpecialState::Force2;
+            if matches!(user_input.swap, KeyState::Press) {
+                *state = EggSpecialState::PunchRapid;
             }
         }
-        EggSpecialState::Force2 => {
-            if key_input.just_pressed(settings.interact) {
+        EggSpecialState::PunchRapid => {
+            if matches!(user_input.interact, KeyState::Press) {
                 let (info, _player) = controllers
                     .iter()
                     .find(|(info, _player)| info.id == EggSpecialElementId::PunchLower)
@@ -1140,8 +1021,8 @@ fn egg_special(
                                 .with_delay(0.083 * toggle)
                                 .looping();
                     });
-            } else if key_input.just_released(settings.interact)
-                || key_input.just_pressed(settings.swap)
+            } else if matches!(user_input.interact, KeyState::Release)
+                || matches!(user_input.swap, KeyState::Press)
             {
                 let (info, _player) = controllers
                     .iter()
@@ -1155,36 +1036,18 @@ fn egg_special(
                 *right_left ^= true;
             }
 
-            if key_input.just_pressed(settings.swap) {
-                commands.spawn((
-                    Temp,
-                    Node {
-                        position_type: PositionType::Absolute,
-                        top: Val::Percent(12.0),
-                        left: Val::Percent(6.0),
-                        ..default()
-                    },
-                    children![(
-                        Text::new("Force 3"),
-                        TextFont {
-                            font_size: 16.0,
-                            ..default()
-                        },
-                        TextColor(WHITE.into()),
-                    )],
-                ));
-
+            if matches!(user_input.swap, KeyState::Press) {
                 let (info, mut player) = controllers
                     .iter_mut()
                     .find(|(info, _)| info.id == EggSpecialElementId::PunchUpper)
                     .unwrap();
                 player.play(info.in_node);
 
-                *state = EggSpecialState::Force3;
+                *state = EggSpecialState::MorePunchRapid;
             }
         }
-        EggSpecialState::Force3 => {
-            if key_input.just_pressed(settings.interact) {
+        EggSpecialState::MorePunchRapid => {
+            if matches!(user_input.interact, KeyState::Press) {
                 controllers
                     .iter()
                     .filter_map(|(info, _player)| {
@@ -1200,8 +1063,8 @@ fn egg_special(
                                 .with_delay(0.016 * i as f32)
                                 .looping()
                     });
-            } else if key_input.just_released(settings.interact)
-                || key_input.just_pressed(settings.swap)
+            } else if matches!(user_input.interact, KeyState::Release)
+                || matches!(user_input.swap, KeyState::Press)
             {
                 controllers
                     .iter()
@@ -1217,25 +1080,7 @@ fn egg_special(
                     });
             }
 
-            if key_input.just_pressed(settings.swap) {
-                commands.spawn((
-                    Temp,
-                    Node {
-                        position_type: PositionType::Absolute,
-                        top: Val::Percent(15.0),
-                        left: Val::Percent(6.0),
-                        ..default()
-                    },
-                    children![(
-                        Text::new("Violence"),
-                        TextFont {
-                            font_size: 16.0,
-                            ..default()
-                        },
-                        TextColor(WHITE.into()),
-                    )],
-                ));
-
+            if matches!(user_input.swap, KeyState::Press) {
                 *state = EggSpecialState::Violence;
             }
         }
@@ -1243,7 +1088,7 @@ fn egg_special(
             const GUNS_SPRITE_ANIMATION_INFO: [(usize, usize, u8); 4] =
                 [(0, 3, 60), (0, 14, 24), (0, 3, 24), (0, 3, 12)];
 
-            if key_input.just_pressed(settings.interact) {
+            if matches!(user_input.interact, KeyState::Press) {
                 controllers
                     .iter_mut()
                     .filter(|(info, _player)| {
@@ -1266,7 +1111,7 @@ fn egg_special(
                             SpriteAnimation::new(first, last, fps).looping();
                     },
                 );
-            } else if key_input.just_released(settings.interact) {
+            } else if matches!(user_input.interact, KeyState::Release) {
                 controllers
                     .iter_mut()
                     .filter(|(info, _player)| {
@@ -1295,31 +1140,17 @@ fn egg_special(
         }
     }
 
-    let (mut debug_text_visibility, mut debug_text) = debug_text.into_inner();
-
-    *debug_text_visibility = match key_input.pressed(settings.interact) {
-        true => Visibility::Visible,
-        false => Visibility::Hidden,
-    };
-
-    if key_input.pressed(settings.interact) {
-        *debug_text = Text::new(format!("Punching\nHP: {}", crack.0));
-    }
-
-    if crack.eq(&u8::MIN) && key_input.just_pressed(settings.jump) {
+    if crack.eq(&u8::MIN) && matches!(user_input.jump, KeyState::Press) {
         controllers
             .iter_mut()
-            .filter(|(info, _player)| {
-                info.id == EggSpecialElementId::PunchLower
-                    || info.id == EggSpecialElementId::PunchUpper
-            })
+            .filter(|(info, player)| player.is_playing_animation(info.in_node))
             .for_each(|(info, mut player)| {
                 info.parts.iter().for_each(|&entity| {
                     *q_sprite_animations.get_mut(entity).unwrap() = SpriteAnimation::set_frame(0);
                 });
                 player.stop_all().play(info.out_node);
             });
-        player_animation.stop_all().play(**fade_node);
+        player_animation.stop_all().play(exit_node.0);
         *state = EggSpecialState::Fading;
     }
 }
@@ -1334,10 +1165,9 @@ fn update_crack(
         With<Crack>,
     >,
     mut e_reader: EventReader<SpriteAnimationFinished>,
-    key_input: Res<ButtonInput<KeyCode>>,
-    settings: Res<Persistent<Settings>>,
+    user_input: Res<UserInput>,
 ) {
-    if !key_input.pressed(settings.interact) || e_reader.is_empty() {
+    if !matches!(user_input.interact, KeyState::Press | KeyState::Hold) || e_reader.is_empty() {
         return;
     }
 
@@ -1345,10 +1175,10 @@ fn update_crack(
 
     let old_damage_level = damage_level(crack_health.0);
 
-    e_reader.read().for_each(|_event| {
-        crack_health.0 = crack_health.0.saturating_sub(1);
-    });
+    let damage = e_reader.read().count() as u8;
     e_reader.clear();
+
+    crack_health.0 = crack_health.saturating_sub(damage);
 
     let new_damage_level = damage_level(crack_health.0);
 
