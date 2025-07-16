@@ -186,6 +186,16 @@ pub fn fade_from_white(fade_white: Single<(&mut AnimationPlayer, &EffectsNodes),
     player.stop_all().play(nodes.out_node);
 }
 
+type BothFades = Or<(With<FadeBlack>, With<FadeWhite>)>;
+pub fn fade_from_whatever(mut q_fades: Query<(&mut AnimationPlayer, &EffectsNodes), BothFades>) {
+    q_fades
+        .iter_mut()
+        .filter(|(player, nodes)| player.is_playing_animation(nodes.in_node))
+        .for_each(|(mut player, node)| {
+            player.stop_all().play(node.out_node);
+        });
+}
+
 #[derive(Debug, Component)]
 pub struct CinematicBars;
 

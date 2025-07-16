@@ -24,46 +24,51 @@ enum TopDownState {
     #[default]
     Loading,
     Ready,
+    Warping,
 }
 
 pub fn topdown_plugin(app: &mut App) {
-    app.add_systems(
-        OnEnter(GameState::TopDown),
-        (setup_camera, setup_map, setup_player),
-    )
-    .add_systems(
-        Update,
-        wait_for_ready.run_if(in_state(TopDownState::Loading)),
-    )
-    .add_systems(
-        Update,
-        (
-            camera_system,
-            update_near_interactables,
-            update_player_submerged,
-            update_player_z,
-            player_hop.run_if(not(player_submerged)),
-            player_swim.run_if(player_submerged),
-            get_topdown_interactions
-                .pipe(play_interactions)
-                .run_if(in_state(InteractionState::None).and(just_pressed_interact)),
+    app.add_systems(OnEnter(GameState::TopDown), (setup_camera, setup_player))
+        .add_systems(OnEnter(TopDownState::Loading), setup_map)
+        .add_systems(
+            Update,
+            wait_for_ready.run_if(in_state(TopDownState::Loading)),
         )
-            .run_if(in_state(MovementState::Enabled))
-            .run_if(in_state(TopDownState::Ready)),
-    )
-    .add_systems(
-        OnExit(GameState::TopDown),
-        (despawn_screen::<OnTopDown>, reset_current_map),
-    )
-    .add_observer(setup_current_map)
-    .add_sub_state::<TopDownState>()
-    .init_resource::<CurrentMap>()
-    .init_resource::<PlayerSpawnLocation>()
-    .init_resource::<TopdownMapHandles>()
-    .register_type::<HopState>()
-    .register_type::<Submerged>()
-    .register_type::<WaterTile>()
-    .register_type::<Warp>();
+        .add_systems(OnEnter(TopDownState::Ready), fade_from_whatever)
+        .add_systems(
+            Update,
+            (
+                camera_system,
+                update_near_interactables,
+                update_player_submerged,
+                update_player_z,
+                player_hop.run_if(not(player_submerged)),
+                player_swim.run_if(player_submerged),
+                get_topdown_interactions
+                    .pipe(play_interactions)
+                    .run_if(in_state(InteractionState::None).and(just_pressed_interact)),
+            )
+                .run_if(in_state(MovementState::Enabled))
+                .run_if(in_state(TopDownState::Ready)),
+        )
+        .add_systems(OnEnter(TopDownState::Warping), fade_to_black)
+        .add_systems(
+            Update,
+            warp_player.run_if(in_state(TopDownState::Warping).and(on_event::<FadeIn>)),
+        )
+        .add_systems(
+            OnExit(GameState::TopDown),
+            (despawn_screen::<OnTopDown>, reset_current_map),
+        )
+        .add_observer(setup_current_map)
+        .add_sub_state::<TopDownState>()
+        .init_resource::<CurrentMap>()
+        .init_resource::<PlayerSpawnLocation>()
+        .init_resource::<TopdownMapHandles>()
+        .register_type::<HopState>()
+        .register_type::<Submerged>()
+        .register_type::<WaterTile>()
+        .register_type::<Warp>();
 }
 
 fn setup_camera(mut commands: Commands, last_player_location: Res<PlayerSpawnLocation>) {
@@ -95,13 +100,71 @@ fn setup_camera(mut commands: Commands, last_player_location: Res<PlayerSpawnLoc
     ));
 }
 
+#[derive(Debug, Deref, DerefMut, Resource)]
+pub struct PlayerSpawnLocation(pub Vec3);
+
+impl Default for PlayerSpawnLocation {
+    fn default() -> Self {
+        const FIRST_SPAWN: Vec3 = vec3(832.0, 1024.0, 0.0);
+        PlayerSpawnLocation(FIRST_SPAWN)
+    }
+}
+
+fn setup_player(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    last_location: Res<PlayerSpawnLocation>,
+) {
+    let player_sprites: Handle<Image> = asset_server.load("sprites/bucko_bounce.png");
+    let layout = TextureAtlasLayout::from_grid(UVec2::splat(32), 8, 3, None, None);
+    let texture_atlas_layout = asset_server.add(layout);
+
+    commands
+        .spawn((
+            OnTopDown,
+            Player,
+            InteractTarget::default(),
+            //
+            Transform::from_translation(last_location.0),
+            Visibility::default(),
+            //
+            Sprite::from_atlas_image(
+                player_sprites,
+                TextureAtlas {
+                    layout: texture_atlas_layout,
+                    index:  0,
+                },
+            ),
+            HopState::Idle,
+            Submerged::default(),
+            SpriteAnimation::set_frame(0),
+            //
+            RigidBody::Dynamic,
+            Collider::circle(14.0),
+            LockedAxes::ROTATION_LOCKED,
+            LinearVelocity::ZERO,
+            LinearDamping(3.0),
+            //
+            RENDER_LAYER_WORLD,
+        ))
+        .observe(update_player_hop)
+        .observe(update_player_animations);
+}
+
 fn setup_map(
     mut commands: Commands,
+    spawned_tiled_maps: Query<Entity, With<TiledMapMarker>>,
     topdown_maps: Res<TopdownMapHandles>,
     current_map: Res<CurrentMap>,
 ) {
+    spawned_tiled_maps.iter().for_each(|entity| {
+        commands.entity(entity).despawn();
+    });
+    commands.remove_resource::<Warp>();
+
+    let current_tiled_map = topdown_maps[current_map.index].clone_weak();
     commands
-        .spawn(TiledMapHandle(topdown_maps[current_map.index].clone_weak()))
+        .spawn(TiledMapHandle(current_tiled_map))
         .insert(OnTopDown)
         .observe(setup_collider_bodies)
         .observe(setup_interactables);
@@ -185,37 +248,24 @@ fn setup_collider_bodies(
     q_tiled_objects: Query<Option<&Warp>, With<TiledMapObject>>,
     q_tiled_colliders: Query<&ChildOf, With<TiledColliderMarker>>,
 ) {
-    let ChildOf(parent) = q_tiled_colliders
-        .get(trigger.entity)
-        .expect("Failed to get collider parent");
-
-    let warp = q_tiled_objects
-        .get(*parent)
-        .expect("Failed to get object from query");
-
-    if warp.is_some() {
-        commands
-            .entity(trigger.entity)
-            .insert((Sensor, CollisionEventsEnabled))
-            .observe(warp_player);
+    if let Ok(ChildOf(parent)) = q_tiled_colliders.get(trigger.entity) {
+        if let Ok(Some(_warp)) = q_tiled_objects.get(*parent) {
+            commands
+                .entity(trigger.entity)
+                .insert((Sensor, CollisionEventsEnabled))
+                .observe(trigger_warp);
+        }
     }
 
     commands.entity(trigger.entity).insert(RigidBody::Static);
 }
 
 fn wait_for_ready(
-    mut e_reader: EventReader<FadeOut>,
     current_map: Res<CurrentMap>,
     mut topdown_state: ResMut<NextState<TopDownState>>,
     mut movement_state: ResMut<NextState<MovementState>>,
-    mut fade_finished: Local<bool>,
 ) {
-    if e_reader.read().count() > 0 {
-        *fade_finished = true;
-    }
-
-    if *fade_finished && current_map.ready {
-        *fade_finished = false;
+    if current_map.ready {
         topdown_state.set(TopDownState::Ready);
         movement_state.set(MovementState::Enabled);
     }
@@ -265,7 +315,7 @@ impl FromWorld for TopdownMapHandles {
     }
 }
 
-#[derive(Component, Reflect, Default)]
+#[derive(Debug, Clone, Copy, Component, Resource, Reflect, Default)]
 #[reflect(Component, Default)]
 struct Warp {
     target_map:      TopdownMapIndex,
@@ -273,33 +323,33 @@ struct Warp {
     offset_or_point: Vec2,
 }
 
-#[allow(clippy::too_many_arguments)]
-fn warp_player(
+fn trigger_warp(
     trigger: Trigger<OnCollisionStart>,
+    player: Single<Entity, With<Player>>,
     q_tiled_colliders: Query<&ChildOf, With<TiledColliderMarker>>,
     q_tiled_objects: Query<&Warp, With<TiledMapObject>>,
-    tiled_map: Single<Entity, With<TiledMapMarker>>,
-    topdown_maps: Res<TopdownMapHandles>,
-    mut current_map: ResMut<CurrentMap>,
-    player: Single<(Entity, &mut Transform), (With<Player>, Without<WorldCamera>)>,
-    mut camera: Single<&mut Transform, With<WorldCamera>>,
     mut commands: Commands,
 ) {
-    let ChildOf(parent) = q_tiled_colliders
-        .get(trigger.target())
-        .expect("Failed to get collider parent");
-
-    let warp = q_tiled_objects
-        .get(*parent)
-        .expect("Failed to get object from query");
-
-    let (player_entity, mut player_transform) = player.into_inner();
-
-    if trigger.collider != player_entity {
-        warn!("wtf");
+    if trigger.collider != *player {
+        // Something else it trying to warp
         return;
     }
 
+    if let Ok(ChildOf(parent)) = q_tiled_colliders.get(trigger.target()) {
+        if let Ok(warp) = q_tiled_objects.get(*parent) {
+            commands.insert_resource(*warp);
+            commands.set_state(TopDownState::Warping);
+        }
+    }
+}
+
+fn warp_player(
+    warp: Res<Warp>,
+    mut current_map: ResMut<CurrentMap>,
+    mut player_transform: Single<&mut Transform, (With<Player>, Without<WorldCamera>)>,
+    mut camera_transform: Single<&mut Transform, With<WorldCamera>>,
+    mut topdown_state: ResMut<NextState<TopDownState>>,
+) {
     *current_map = CurrentMap {
         index: warp.target_map,
         ..default()
@@ -313,7 +363,7 @@ fn warp_player(
         false => player_transform.translation += warp.offset_or_point.extend(0.0),
     };
 
-    camera.translation = player_transform.translation;
+    camera_transform.translation = player_transform.translation;
 
     let Vec3 { x, y, z } = player_transform.translation;
     info!(
@@ -321,64 +371,7 @@ fn warp_player(
         warp.target_map, x, y, z
     );
 
-    let target_map_handle = topdown_maps[warp.target_map].clone_weak();
-
-    commands.entity(*tiled_map).despawn();
-    commands
-        .spawn(TiledMapHandle(target_map_handle))
-        .insert(OnTopDown)
-        .observe(setup_collider_bodies);
-}
-
-#[derive(Debug, Deref, DerefMut, Resource)]
-pub struct PlayerSpawnLocation(pub Vec3);
-
-impl Default for PlayerSpawnLocation {
-    fn default() -> Self {
-        const FIRST_SPAWN: Vec3 = vec3(832.0, 1024.0, 0.0);
-        PlayerSpawnLocation(FIRST_SPAWN)
-    }
-}
-
-fn setup_player(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    last_location: Res<PlayerSpawnLocation>,
-) {
-    let player_sprites: Handle<Image> = asset_server.load("sprites/bucko_bounce.png");
-    let layout = TextureAtlasLayout::from_grid(UVec2::splat(32), 8, 3, None, None);
-    let texture_atlas_layout = asset_server.add(layout);
-
-    commands
-        .spawn((
-            OnTopDown,
-            Player,
-            InteractTarget::default(),
-            //
-            Transform::from_translation(last_location.0),
-            Visibility::default(),
-            //
-            Sprite::from_atlas_image(
-                player_sprites,
-                TextureAtlas {
-                    layout: texture_atlas_layout,
-                    index:  0,
-                },
-            ),
-            HopState::Idle,
-            Submerged::default(),
-            SpriteAnimation::set_frame(0),
-            //
-            RigidBody::Dynamic,
-            Collider::circle(14.0),
-            LockedAxes::ROTATION_LOCKED,
-            LinearVelocity::ZERO,
-            LinearDamping(3.0),
-            //
-            RENDER_LAYER_WORLD,
-        ))
-        .observe(update_player_hop)
-        .observe(update_player_animations);
+    topdown_state.set(TopDownState::Loading);
 }
 
 fn update_player_z(
