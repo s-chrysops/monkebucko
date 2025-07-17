@@ -61,6 +61,7 @@ pub fn bones_plugin(app: &mut App) {
             enemy_dive,
             enemy_land,
             enemy_recover,
+            update_enemy_animation,
             enemy_fire,
         )
             .run_if(in_state(BonesState::Playing)),
@@ -291,14 +292,13 @@ fn setup_enemies(
     const ENEMY_START: Vec3 = vec3(64.0, 180.0, 1.0);
     const ENEMY_SPACING: f32 = 48.0;
 
-    let enemy_image = asset_server.load("bucko.png");
-    let layout = TextureAtlasLayout::from_grid(UVec2::splat(128), 1, 1, None, None);
+    let enemy_image = asset_server.load("sprites/ucko/crawl.png");
+    let layout = TextureAtlasLayout::from_grid(UVec2::splat(64), 8, 1, None, None);
     let layout = asset_server.add(layout);
     asset_tracker.push(enemy_image.clone().untyped());
 
     let enemy_sprite = Sprite {
         image: enemy_image,
-        custom_size: Some(Vec2::splat(64.0)),
         texture_atlas: Some(layout.into()),
         ..default()
     };
@@ -334,14 +334,14 @@ fn setup_enemies(
             (
                 // Visual
                 enemy_sprite.clone(),
-                SpriteAnimation::set_frame(0),
+                SpriteAnimation::new(0, 7, 12).looping(),
                 Visibility::default(),
                 RENDER_LAYER_WORLD,
             ),
             (
                 // Physics
                 RigidBody::Dynamic,
-                Collider::circle(16.0),
+                Collider::capsule_endpoints(16.0, vec2(0.0, -8.0), vec2(0.0, -16.0)),
                 RayCaster::new(Vec2::ZERO, Dir2::X)
                     .with_max_distance(64.0)
                     .with_query_filter(raycaster_filter.clone()),
@@ -353,7 +353,8 @@ fn setup_enemies(
                 children![(
                     DamageCollider,
                     Sensor,
-                    Collider::circle(15.9),
+                    Collider::rectangle(54.0, 30.0),
+                    Transform::from_xyz(0.0, -17.0, 0.0),
                     hitbox_collision_layers,
                 )],
             ),
@@ -451,11 +452,7 @@ fn update_buckos_grounded(
                 false => contact.body1,
             };
 
-            let Some(other_body) = other_body else {
-                return None; // other collider has no body so it's not the ground
-            };
-
-            if !ground_bodies.contains(other_body) {
+            if !ground_bodies.contains(other_body?) {
                 return None;
             }
 
@@ -465,8 +462,8 @@ fn update_buckos_grounded(
                     false => manifold.normal,
                 }; // Normal points from ground to bucko
 
-                (normal.y > 0.0).then_some(-normal.perp())
-            }) // contact isn't completely horizontal, you're grounded bucko
+                (normal.y.abs() > 0.001).then_some(-normal.perp())
+            }) // contact isn't completely vertical, you're grounded bucko
         });
 
         grounded.set_if_neq(Grounded {
@@ -493,14 +490,12 @@ fn update_player_velocity(
         .forward
         .expect("System should only run if grounded");
 
-    // let health_multiplier = (health.0 as f32 / 8.0) + 1.0;
-    // velocity.x = ((user_input.raw_vector.x * 16.0) + MIN_SPEED) * health_multiplier;
     velocity.0 += forward * user_input.raw_vector.x * ACCELERATION * time.delta_secs();
     velocity.x = velocity.x.clamp(0.0, max_x_velocity);
 }
 
 fn player_jump(mut player_velocity: Single<&mut LinearVelocity, With<Player>>) {
-    const JUMP_IMPULSE: Vec2 = vec2(32.0, 256.0);
+    const JUMP_IMPULSE: Vec2 = vec2(48.0, 256.0);
     player_velocity.0 += JUMP_IMPULSE;
 }
 
@@ -582,6 +577,18 @@ fn update_enemies_velocity(
         });
 }
 
+fn update_enemy_animation(
+    mut q_enemies: Query<(&UckoState, &mut SpriteAnimation), (With<Ucko>, Changed<UckoState>)>,
+) {
+    q_enemies.iter_mut().for_each(|(state, mut animation)| {
+        *animation = match *state {
+            UckoState::Chase => SpriteAnimation::new(0, 7, 12).looping(),
+            UckoState::Sprint => SpriteAnimation::new(0, 7, 16).looping(),
+            _ => SpriteAnimation::set_frame(0),
+        }
+    });
+}
+
 fn enemy_sprint(
     camera: Single<&Transform, With<WorldCamera>>,
     mut q_enemies: Query<(&mut UckoState, &Transform), With<Ucko>>,
@@ -624,7 +631,7 @@ fn enemy_jump(
     ground_bodies: Query<(), With<TiledColliderMarker>>,
     mut q_enemies: Query<(&mut UckoState, &RayHits, &mut LinearVelocity), With<Ucko>>,
 ) {
-    const JUMP_IMPULSE: Vec2 = vec2(16.0, 256.0);
+    const JUMP_IMPULSE: Vec2 = vec2(48.0, 256.0);
 
     q_enemies
         .iter_mut()
@@ -636,7 +643,7 @@ fn enemy_jump(
                 .any(|normal| normal.y.abs() < 0.001) // normal is near horizontal
         })
         .for_each(|(mut state, _ray_hits, mut velocity)| {
-            velocity.0 += JUMP_IMPULSE;
+            velocity.0 = JUMP_IMPULSE;
             *state = UckoState::Jump;
         });
 }
