@@ -502,6 +502,7 @@ checksum = "68c5c08248eb0918c035cb397b9ebc9583ed51a7015812d747829c09ee3776c5"
 dependencies = [
  "bevy",
  "gloo-storage",
+ "ron",
  "serde",
  "thiserror 2.0.12",
  "toml",
@@ -3418,7 +3419,7 @@ dependencies = [
 
 [[package]]
 name = "monkebucko"
-version = "0.5.6"
+version = "0.6.0"
 dependencies = [
  "avian2d",
  "bevy",
