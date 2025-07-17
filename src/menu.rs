@@ -6,6 +6,8 @@ use bevy::{
 };
 use bevy_persistent::Persistent;
 
+use crate::progress::{Progress, ProgressStorage, SaveSlot};
+
 use super::{AppState, Settings, despawn_screen};
 
 const TEXT_COLOR: Color = Color::Srgba(WHITE_SMOKE);
@@ -19,15 +21,19 @@ const PRESSED_BUTTON: Color = Color::srgb(0.35, 0.75, 0.35);
 enum MenuState {
     Main,
     Settings,
+    Data,
     #[default]
     Disabled,
 }
 
 #[derive(Component)]
-struct OnMainMenuScreen;
+struct OnMainMenu;
 
 #[derive(Component)]
-struct OnSettingsScreen;
+struct OnSettings;
+
+#[derive(Component)]
+struct OnData;
 
 #[derive(Component)]
 struct SelectedOption;
@@ -59,12 +65,11 @@ pub fn menu_plugin(app: &mut App) {
     app.init_state::<MenuState>()
         .add_systems(OnEnter(AppState::Menu), menu_setup)
         .add_systems(OnEnter(MenuState::Main), main_menu_setup)
-        .add_systems(OnExit(MenuState::Main), despawn_screen::<OnMainMenuScreen>)
+        .add_systems(OnExit(MenuState::Main), despawn_screen::<OnMainMenu>)
         .add_systems(OnEnter(MenuState::Settings), settings_menu_setup)
-        .add_systems(
-            OnExit(MenuState::Settings),
-            despawn_screen::<OnSettingsScreen>,
-        )
+        .add_systems(OnExit(MenuState::Settings), despawn_screen::<OnSettings>)
+        .add_systems(OnEnter(MenuState::Data), setup_data_menu)
+        .add_systems(OnExit(MenuState::Data), despawn_screen::<OnData>)
         .add_systems(
             Update,
             (menu_action, button_system).run_if(in_state(AppState::Menu)),
@@ -73,6 +78,7 @@ pub fn menu_plugin(app: &mut App) {
             Update,
             radio_settings_system.run_if(in_state(MenuState::Settings)),
         )
+        .add_systems(Update, start_game.run_if(in_state(MenuState::Data)))
         .insert_resource(SaveSystemId(save_system_id));
 }
 
@@ -83,7 +89,7 @@ fn menu_action(
     >,
     mut app_exit_events: EventWriter<AppExit>,
     mut menu_state: ResMut<NextState<MenuState>>,
-    mut game_state: ResMut<NextState<AppState>>,
+    // mut game_state: ResMut<NextState<AppState>>,
     mut commands: Commands,
     save_system_id: Res<SaveSystemId>,
 ) {
@@ -96,8 +102,7 @@ fn menu_action(
                 app_exit_events.write(AppExit::Success);
             }
             MenuButtonAction::Play => {
-                game_state.set(AppState::Game);
-                menu_state.set(MenuState::Disabled);
+                menu_state.set(MenuState::Data);
             }
             MenuButtonAction::Settings => menu_state.set(MenuState::Settings),
             MenuButtonAction::SaveSettings => {
@@ -139,7 +144,7 @@ fn main_menu_setup(mut commands: Commands, _asset_server: Res<AssetServer>) {
                 justify_content: JustifyContent::Center,
                 ..default()
             },
-            OnMainMenuScreen,
+            OnMainMenu,
         ))
         .id();
 
@@ -239,7 +244,7 @@ fn settings_menu_setup(
                 justify_content: JustifyContent::Center,
                 ..default()
             },
-            OnSettingsScreen,
+            OnSettings,
         ))
         .id();
 
@@ -418,6 +423,162 @@ fn settings_menu_setup(
         sound_volume_node,
         navigation_node,
     ]);
+}
+
+#[derive(Debug, Component)]
+struct TimePlayed;
+
+#[derive(Debug, Component)]
+struct StartButton;
+
+fn setup_data_menu(mut commands: Commands, progress_storage: Res<Persistent<ProgressStorage>>) {
+    let button_text_font = TextFont {
+        font_size: 32.0,
+        ..default()
+    };
+
+    let root_node = commands
+        .spawn((
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            OnData,
+        ))
+        .id();
+
+    // Slot Selection
+    let slot_selection = commands
+        .spawn((
+            ChildOf(root_node),
+            Node {
+                width: Val::Percent(50.0),
+                height: Val::Percent(70.0),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+        ))
+        .id();
+
+    let slots = [SaveSlot::SlotA, SaveSlot::SlotB, SaveSlot::SlotC];
+    progress_storage
+        .iter()
+        .zip(slots)
+        .for_each(|(progress, slot)| {
+            let time_played = progress
+                .as_ref()
+                .map(|progress| {
+                    let seconds = progress.time_played.as_secs();
+                    let minutes = seconds / 60;
+                    let hours = minutes / 60;
+                    format!("{:02}:{:02}:{:02}", hours, minutes % 60, seconds % 3600)
+                })
+                .unwrap_or("Empty".to_string());
+
+            commands.spawn((
+                ChildOf(slot_selection),
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(33.3),
+                    padding: UiRect::all(Val::Percent(2.0)),
+                    flex_direction: FlexDirection::Column,
+                    ..default()
+                },
+                BackgroundColor(DARK_GREY.into()),
+                children![
+                    (
+                        Text::new(slot.to_string()),
+                        button_text_font.clone(),
+                        TextColor(TEXT_COLOR),
+                    ),
+                    (
+                        TimePlayed,
+                        slot,
+                        Text::new(time_played),
+                        button_text_font.clone(),
+                        TextColor(TEXT_COLOR),
+                    ),
+                    (
+                        Button,
+                        StartButton,
+                        slot,
+                        Node {
+                            position_type: PositionType::Absolute,
+                            width: Val::Percent(30.0),
+                            height: Val::Percent(80.0),
+                            right: Val::Percent(2.0),
+                            align_items: AlignItems::Center,
+                            justify_content: JustifyContent::Center,
+                            ..default()
+                        },
+                        children![(
+                            Text::new("Play"),
+                            button_text_font.clone(),
+                            TextColor(TEXT_COLOR),
+                        )]
+                    ),
+                ],
+            ));
+        });
+
+    // Navigation
+    commands.spawn((
+        ChildOf(root_node),
+        Node {
+            width: Val::Percent(50.0),
+            height: Val::Percent(10.0),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        },
+        BackgroundColor(SLATE_GRAY.into()),
+        children![(
+            Button,
+            Node {
+                width: Val::Px(300.0),
+                height: Val::Px(65.0),
+                margin: UiRect::all(Val::Px(20.0)),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(NORMAL_BUTTON),
+            MenuButtonAction::BackToMainMenu,
+            children![
+                // (ImageNode::new(right_icon), button_icon_node.clone()),
+                (
+                    Text::new("Back"),
+                    button_text_font.clone(),
+                    TextColor(TEXT_COLOR),
+                ),
+            ]
+        )],
+    ));
+}
+
+fn start_game(
+    q_start: Query<(&Interaction, &SaveSlot), With<StartButton>>,
+    progress_storage: ResMut<Persistent<ProgressStorage>>,
+    mut commands: Commands,
+) {
+    if let Some(save_slot) = q_start.iter().find_map(|(interaction, save_slot)| {
+        matches!(interaction, Interaction::Pressed).then_some(save_slot)
+    }) {
+        let progress = match &progress_storage[*save_slot] {
+            Some(progress) => progress.clone(),
+            None => Progress::default(),
+        };
+        commands.insert_resource(progress);
+        commands.insert_resource(*save_slot);
+        commands.set_state(AppState::Game);
+        commands.set_state(MenuState::Disabled);
+    }
 }
 
 // This system handles changing all buttons color based on mouse interaction

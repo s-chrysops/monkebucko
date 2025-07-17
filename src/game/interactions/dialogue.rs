@@ -4,7 +4,6 @@ use std::hash::{Hash, Hasher};
 use bevy::{
     animation::{AnimationTarget, AnimationTargetId, animated_field},
     asset::LoadState,
-    // ecs::system::SystemId,
     prelude::*,
 };
 use bevy_text_animation::TextSimpleAnimator;
@@ -13,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use super::*;
 use crate::{
     Blob, EnumMap, RENDER_LAYER_OVERLAY, WINDOW_WIDTH, animation::SpriteAnimation,
-    game::effects::*, game::topdown::PlayerSpawnLocation,
+    game::effects::*, progress::Progress,
 };
 
 #[derive(SubStates, Clone, PartialEq, Eq, Hash, Debug, Default)]
@@ -198,11 +197,15 @@ fn advance_dialogue(
     *text_animator = new_text_animator;
 }
 
-fn post_dialogue(mut commands: Commands, current_dialogue: Res<DialogueCurrentId>) {
+fn post_dialogue(
+    current_dialogue: Res<DialogueCurrentId>,
+    mut commands: Commands,
+    mut progress: ResMut<Progress>,
+) {
     match current_dialogue.0 {
         DialogueId::UckoIntro => {
             commands.set_state(GameState::Bones);
-            commands.insert_resource(PlayerSpawnLocation(vec3(1280.0, 128.0, 1.0)));
+            progress.position = vec2(1280.0, 128.0);
         }
         DialogueId::WizuckoWin => {
             commands.set_state(DialogueState::Loading);
@@ -747,7 +750,7 @@ fn add_new_dialogue(mut dialogue_storage: ResMut<DialogueStorage>) {
     const SCENE_AREA_HEIGHT: f32 = 540.0;
     const _OFFSCREEN: Vec2 = Vec2::splat(-2048.0);
     const OFFSCREEN_RIGHT: Vec2 = vec2((WINDOW_WIDTH + SCENE_AREA_HEIGHT) / 2.0, 0.0);
-    const OFFSCREEN_LEFT: Vec2 = vec2(-(WINDOW_WIDTH + SCENE_AREA_HEIGHT) / 2.0, 0.0);
+    const _OFFSCREEN_LEFT: Vec2 = vec2(-(WINDOW_WIDTH + SCENE_AREA_HEIGHT) / 2.0, 0.0);
 
     dialogue_storage.insert(
         DialogueId::UckoIntro,
@@ -762,6 +765,10 @@ fn add_new_dialogue(mut dialogue_storage: ResMut<DialogueStorage>) {
                     .custom_size(Vec2::splat(SCENE_AREA_HEIGHT))
                     .frames(18)
                     .fps(16),
+                DialogueElement::new("sprites/bucko/wave.png")
+                    .custom_size(Vec2::splat(SCENE_AREA_HEIGHT))
+                    .frames(4)
+                    .fps(8),
                 DialogueElement::new("sprites/ucko/group.png").position(OFFSCREEN_RIGHT),
                 DialogueElement::new("sprites/bucko/bones_1.png"),
                 DialogueElement::new("sprites/bucko/bones_2.png"),
@@ -777,29 +784,51 @@ fn add_new_dialogue(mut dialogue_storage: ResMut<DialogueStorage>) {
                 .add_action(
                     DialogueAction::new(0)
                         .mode(ActionMode::Scale)
-                        .start(vec2(0.1, 0.1))
-                        .end(vec2(1.0, 1.0))
+                        .start(Vec2::splat(0.1))
+                        .end(Vec2::splat(1.0))
                         .ease(EaseFunction::Steps(3, JumpAt::End))
                         .duration(6.0),
                 )
                 .add_action(DialogueAction::deactivate(0).delay(6.5))
-                .add_action(DialogueAction::activate(1).delay(6.5)),
+                .add_action(DialogueAction::activate(1).delay(6.5))
+                .add_action(DialogueAction::deactivate(1).delay(8.0))
+                .add_action(DialogueAction::activate(2).delay(8.0))
+                .add_action(
+                    DialogueAction::new(2)
+                        .start(Vec2::ZERO)
+                        .end(Vec2::NEG_Y * 128.0)
+                        .ease(EaseFunction::ExponentialOut)
+                        .delay(8.0)
+                        .duration(2.0),
+                )
+                .add_action(
+                    DialogueAction::new(2)
+                        .mode(ActionMode::Scale)
+                        .start(Vec2::splat(1.0))
+                        .end(Vec2::splat(1.5))
+                        .ease(EaseFunction::ExponentialOut)
+                        .delay(8.0)
+                        .duration(2.0),
+                ),
                 DialogueLine::new(Character::Unknown, "...")
                     .speed(1.0)
                     .delay(2.0)
-                    .add_action(DialogueAction::activate(2))
+                    .add_action(DialogueAction::activate(3))
                     .add_action(
-                        DialogueAction::new(1)
-                            .start(Vec2::ZERO)
-                            .end(OFFSCREEN_LEFT)
+                        DialogueAction::new(2)
+                            .start(Vec2::NEG_Y * 128.0)
+                            .end(vec2(-1000.0, -128.0))
+                            .ease(EaseFunction::SmoothStep)
                             .duration(2.0),
                     )
                     .add_action(
-                        DialogueAction::new(2)
+                        DialogueAction::new(3)
                             .start(OFFSCREEN_RIGHT)
                             .end(Vec2::ZERO)
+                            .ease(EaseFunction::SmoothStep)
                             .duration(2.0),
                     ),
+                DialogueLine::new(Character::Bucko, "I see... a pleasure talking to ya-"),
                 DialogueLine::new(Character::Bucko, "Uh oh..."),
                 DialogueLine::new(Character::Bucko, "AAAAAAIIIIEEEEEE!!"),
             ],

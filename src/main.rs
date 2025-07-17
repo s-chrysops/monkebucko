@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use animation::sprite_animations_plugin;
 use game::game_plugin;
 use menu::menu_plugin;
+use progress::progress_plugin;
 use splash::splash_plugin;
 
 use crate::auto_scaling::ScalePlugin;
@@ -24,6 +25,7 @@ use crate::auto_scaling::ScalePlugin;
 mod animation;
 mod game;
 mod menu;
+mod progress;
 mod splash;
 
 mod auto_scaling;
@@ -104,8 +106,8 @@ fn main() {
         TiledPhysicsPlugin::<TiledPhysicsAvianBackend>::default(),
         PhysicsPlugins::default().with_length_unit(32.0),
         EntropyPlugin::<WyRand>::default(),
-        // avian2d::prelude::PhysicsDebugPlugin::default(),
         // bevy::dev_tools::picking_debug::DebugPickingPlugin,
+        // avian2d::prelude::PhysicsDebugPlugin::default(),
         // bevy_inspector_egui::bevy_egui::EguiPlugin {
         //     enable_multipass_for_primary_context: true,
         // },
@@ -116,6 +118,7 @@ fn main() {
         menu_plugin,
         splash_plugin,
         sprite_animations_plugin,
+        progress_plugin,
     ))
     .init_asset::<Blob>()
     .init_asset_loader::<BlobAssetLoader>()
@@ -180,11 +183,15 @@ fn despawn_screen<T: Component>(to_despawn: Query<Entity, With<T>>, mut commands
     }
 }
 
-use bevy::{platform::collections::HashMap, prelude::TypePath};
+use bevy::{
+    platform::collections::{HashMap, HashSet},
+    prelude::TypePath,
+};
 use nohash_hasher::{IsEnabled, NoHashHasher};
 use std::hash::{BuildHasherDefault, Hasher};
 
 pub type EnumMap<K, V> = HashMap<K, V, BuildHasherDefault<BuckoNoHashHasher<K>>>;
+pub type EnumSet<T> = HashSet<T, BuildHasherDefault<BuckoNoHashHasher<T>>>;
 pub type BuildBuckoNoHashHasher<T> = BuildHasherDefault<BuckoNoHashHasher<T>>;
 
 #[derive(Debug, Clone, Copy, Default, TypePath)]

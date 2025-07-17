@@ -21,7 +21,7 @@ use topdown::topdown_plugin;
 
 mod bones;
 mod egg;
-mod topdown;
+pub mod topdown;
 
 const PICKABLE: Pickable = Pickable {
     should_block_lower: true,

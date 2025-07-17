@@ -13,6 +13,7 @@ use crate::{
         effects::*,
         interactions::{dialogue::DialoguePreload, *},
     },
+    progress::{Progress, save_progress_to_disk},
 };
 
 #[derive(Debug, Component)]
@@ -34,7 +35,10 @@ pub fn topdown_plugin(app: &mut App) {
             Update,
             wait_for_ready.run_if(in_state(TopDownState::Loading)),
         )
-        .add_systems(OnEnter(TopDownState::Ready), fade_from_whatever)
+        .add_systems(
+            OnEnter(TopDownState::Ready),
+            (fade_from_whatever, save_progress_to_disk),
+        )
         .add_systems(
             Update,
             (
@@ -63,7 +67,7 @@ pub fn topdown_plugin(app: &mut App) {
         .add_observer(setup_current_map)
         .add_sub_state::<TopDownState>()
         .init_resource::<CurrentMap>()
-        .init_resource::<PlayerSpawnLocation>()
+        // .init_resource::<PlayerSpawnLocation>()
         .init_resource::<TopdownMapHandles>()
         .register_type::<HopState>()
         .register_type::<Submerged>()
@@ -71,7 +75,7 @@ pub fn topdown_plugin(app: &mut App) {
         .register_type::<Warp>();
 }
 
-fn setup_camera(mut commands: Commands, last_player_location: Res<PlayerSpawnLocation>) {
+fn setup_camera(mut commands: Commands, progress: Res<Progress>) {
     use crate::auto_scaling::AspectRatio;
     use bevy::render::camera::ScalingMode;
 
@@ -84,7 +88,7 @@ fn setup_camera(mut commands: Commands, last_player_location: Res<PlayerSpawnLoc
             clear_color: ClearColorConfig::Custom(Color::BLACK),
             ..default()
         },
-        Transform::from_translation(last_player_location.0).with_scale(Vec3::splat(0.5)),
+        Transform::from_translation(progress.position.extend(0.0)).with_scale(Vec3::splat(0.5)),
         AspectRatio(16.0 / 9.0),
         Projection::from({
             OrthographicProjection {
@@ -100,21 +104,17 @@ fn setup_camera(mut commands: Commands, last_player_location: Res<PlayerSpawnLoc
     ));
 }
 
-#[derive(Debug, Deref, DerefMut, Resource)]
-pub struct PlayerSpawnLocation(pub Vec3);
+// #[derive(Debug, Deref, DerefMut, Resource)]
+// pub struct PlayerSpawnLocation(pub Vec3);
 
-impl Default for PlayerSpawnLocation {
-    fn default() -> Self {
-        const FIRST_SPAWN: Vec3 = vec3(832.0, 1024.0, 0.0);
-        PlayerSpawnLocation(FIRST_SPAWN)
-    }
-}
+// impl Default for PlayerSpawnLocation {
+//     fn default() -> Self {
+//         const FIRST_SPAWN: Vec3 = vec3(832.0, 1024.0, 0.0);
+//         PlayerSpawnLocation(FIRST_SPAWN)
+//     }
+// }
 
-fn setup_player(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    last_location: Res<PlayerSpawnLocation>,
-) {
+fn setup_player(mut commands: Commands, asset_server: Res<AssetServer>, progress: Res<Progress>) {
     let player_sprites: Handle<Image> = asset_server.load("sprites/bucko_bounce.png");
     let layout = TextureAtlasLayout::from_grid(UVec2::splat(32), 8, 3, None, None);
     let texture_atlas_layout = asset_server.add(layout);
@@ -125,7 +125,7 @@ fn setup_player(
             Player,
             InteractTarget::default(),
             //
-            Transform::from_translation(last_location.0),
+            Transform::from_translation(progress.position.extend(0.0)),
             Visibility::default(),
             //
             Sprite::from_atlas_image(
@@ -155,14 +155,15 @@ fn setup_map(
     mut commands: Commands,
     spawned_tiled_maps: Query<Entity, With<TiledMapMarker>>,
     topdown_maps: Res<TopdownMapHandles>,
-    current_map: Res<CurrentMap>,
+    // current_map: Res<CurrentMap>,
+    progress: ResMut<Progress>,
 ) {
     spawned_tiled_maps.iter().for_each(|entity| {
         commands.entity(entity).despawn();
     });
     commands.remove_resource::<Warp>();
 
-    let current_tiled_map = topdown_maps[current_map.index].clone_weak();
+    let current_tiled_map = topdown_maps[progress.map].clone_weak();
     commands
         .spawn(TiledMapHandle(current_tiled_map))
         .insert(OnTopDown)
@@ -173,8 +174,8 @@ fn setup_map(
 #[derive(Debug, Default, Resource)]
 struct CurrentMap {
     ready: bool,
-    index: TopdownMapIndex,
 
+    // index: TopdownMapIndex,
     rect:         Rect,
     tilemap_size: TilemapSize,
 
@@ -273,9 +274,10 @@ fn wait_for_ready(
 
 const TOTAL_TOPDOWN_MAPS: usize = 7;
 
-#[derive(Clone, Copy, Debug, Default, Reflect)]
+use serde::{Deserialize, Serialize};
+#[derive(Clone, Copy, Debug, Default, Reflect, Serialize, Deserialize)]
 #[reflect(Default)]
-enum TopdownMapIndex {
+pub enum TopdownMapIndex {
     #[default]
     Mountain,
     Backyard,
@@ -345,15 +347,16 @@ fn trigger_warp(
 
 fn warp_player(
     warp: Res<Warp>,
-    mut current_map: ResMut<CurrentMap>,
+    // mut current_map: ResMut<CurrentMap>,
+    mut progress: ResMut<Progress>,
     mut player_transform: Single<&mut Transform, (With<Player>, Without<WorldCamera>)>,
     mut camera_transform: Single<&mut Transform, With<WorldCamera>>,
     mut topdown_state: ResMut<NextState<TopDownState>>,
 ) {
-    *current_map = CurrentMap {
-        index: warp.target_map,
-        ..default()
-    };
+    // *current_map = CurrentMap {
+    //     index: warp.target_map,
+    //     ..default()
+    // };
 
     let Vec3 { x, y, z } = player_transform.translation;
     info!("Player at ({}, {}, {})", x, y, z);
@@ -370,6 +373,9 @@ fn warp_player(
         "Warping player to {:?} ({}, {}, {})",
         warp.target_map, x, y, z
     );
+
+    progress.map = warp.target_map;
+    progress.position = player_transform.translation.xy();
 
     topdown_state.set(TopDownState::Loading);
 }
