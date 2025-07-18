@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 #[derive(Clone, Copy, Debug, Event, Deref, PartialEq)]
-pub struct SpriteAnimationFinished(Entity);
+pub struct SpriteAnimationFinished(pub Entity);
 
 #[derive(Debug, Component, Reflect)]
 #[reflect(Component)]

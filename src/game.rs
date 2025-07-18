@@ -43,8 +43,8 @@ enum GameState {
 
 #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
 enum MovementState {
-    #[default]
     Enabled,
+    #[default]
     Disabled,
 }
 
@@ -53,6 +53,9 @@ struct Player;
 
 #[derive(Debug, Component)]
 struct WorldCamera;
+
+#[derive(Debug, Component)]
+struct SpecialCamera;
 
 pub fn game_plugin(app: &mut App) {
     app.add_plugins((effects_plugin, interactions_plugin))

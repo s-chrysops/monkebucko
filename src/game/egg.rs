@@ -2,17 +2,19 @@ use std::f32::consts::*;
 
 use bevy::{
     animation::*,
+    asset::RenderAssetUsages,
     color::palettes::css::*,
     core_pipeline::{bloom::Bloom, tonemapping::Tonemapping},
+    gltf::GltfMaterialName,
     input::mouse::AccumulatedMouseMotion,
-    math::u8,
     prelude::*,
+    render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages},
 };
 use bevy_rand::prelude::*;
 use rand_core::RngCore;
 
 use crate::{
-    RENDER_LAYER_OVERLAY, RENDER_LAYER_WORLD,
+    RENDER_LAYER_OVERLAY, RENDER_LAYER_SPECIAL, RENDER_LAYER_WORLD,
     animation::{SpriteAnimation, SpriteAnimationFinished},
     auto_scaling::AspectRatio,
     despawn_screen,
@@ -28,7 +30,8 @@ struct OnEggScene;
 #[source(GameState = GameState::Egg)]
 enum EggState {
     #[default]
-    None,
+    Loading,
+    Ready,
     Special,
 }
 
@@ -49,17 +52,16 @@ pub fn egg_plugin(app: &mut App) {
             spawn_world,
             spawn_stars,
             spawn_egg_special_elements,
+            setup_crt,
             cursor_grab,
         ),
     )
     .add_systems(
         OnExit(GameState::Egg),
-        (
-            despawn_screen::<OnEggScene>,
-            cursor_ungrab,
-            effects::fade_from_white,
-        ),
+        (despawn_screen::<OnEggScene>, cursor_ungrab),
     )
+    .add_systems(Update, wait_till_loaded.run_if(in_state(EggState::Loading)))
+    .add_systems(OnEnter(EggState::Ready), bind_render_target_to_panel)
     .add_systems(
         Update,
         (
@@ -72,7 +74,7 @@ pub fn egg_plugin(app: &mut App) {
             )
                 .run_if(in_state(MovementState::Enabled)),
         )
-            .run_if(in_state(GameState::Egg)),
+            .run_if(in_state(EggState::Ready)),
     )
     .add_systems(OnEnter(EggState::Special), setup_camera_movements)
     .add_systems(
@@ -81,6 +83,18 @@ pub fn egg_plugin(app: &mut App) {
     )
     .add_sub_state::<EggState>()
     .init_resource::<StarResources>();
+}
+
+fn wait_till_loaded(
+    asset_server: Res<AssetServer>,
+    mut asset_tracker: ResMut<AssetTracker>,
+    mut egg_state: ResMut<NextState<EggState>>,
+    mut movement_state: ResMut<NextState<MovementState>>,
+) {
+    if asset_tracker.is_ready(asset_server) {
+        egg_state.set(EggState::Ready);
+        movement_state.set(MovementState::Enabled);
+    }
 }
 
 // #[derive(Debug, Component, Deref, DerefMut)]
@@ -124,7 +138,7 @@ struct Crack;
 #[derive(Debug, Deref, DerefMut, Component)]
 struct Health(u8);
 
-const CRACK_HEALTH: u8 = 255;
+const CRACK_HEALTH: u8 = 200;
 
 #[derive(Debug, Deref, Component)]
 struct CrackMaterials([Handle<StandardMaterial>; 6]);
@@ -133,6 +147,7 @@ fn spawn_world(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut asset_tracker: ResMut<AssetTracker>,
     asset_server: Res<AssetServer>,
 ) {
     info!("Spawning egg world");
@@ -229,8 +244,10 @@ fn spawn_world(
     ];
 
     let crack_materials = CrackMaterials(CRACK_PATHS.map(|path| {
+        let image = asset_server.load(path);
+        asset_tracker.push(image.clone_weak().untyped());
         materials.add(StandardMaterial {
-            base_color_texture: Some(asset_server.load(path)),
+            base_color_texture: Some(image),
             perceptual_roughness: 1.0,
             alpha_mode: AlphaMode::Mask(0.5),
             cull_mode: None,
@@ -259,6 +276,109 @@ fn spawn_world(
         ))
         .observe(over_interactables)
         .observe(out_interactables);
+
+    commands.spawn((
+        OnEggScene,
+        PointLight {
+            color: Color::from(LAVENDER),
+            intensity: 50000.0,
+            shadows_enabled: true,
+            ..default()
+        },
+        Transform::from_xyz(0.0, 1.4, 0.0),
+    ));
+}
+
+#[derive(Debug, Resource)]
+struct CrtRenderTarget(Handle<Image>);
+
+#[derive(Debug, Component)]
+struct CrtSprite;
+
+fn setup_crt(
+    mut commands: Commands,
+    mut asset_tracker: ResMut<AssetTracker>,
+    asset_server: Res<AssetServer>,
+) {
+    let scene_crt = asset_server.load(GltfAssetLabel::Scene(0).from_asset("crt.glb"));
+    asset_tracker.push(scene_crt.clone_weak().untyped());
+    commands.spawn(SceneRoot(scene_crt));
+
+    // This is the texture that will be rendered to.
+    let mut image = Image::new_fill(
+        Extent3d {
+            width: 128,
+            height: 96,
+            ..default()
+        },
+        TextureDimension::D2,
+        &[0, 0, 0, 0],
+        TextureFormat::Bgra8UnormSrgb,
+        RenderAssetUsages::default(),
+    );
+
+    image.texture_descriptor.usage =
+        TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
+
+    let image_handle = asset_server.add(image);
+
+    use bevy::render::camera::{RenderTarget, ScalingMode};
+    commands.spawn((
+        OnEggScene,
+        SpecialCamera,
+        Camera2d,
+        Camera {
+            order: 2,
+            target: RenderTarget::Image(image_handle.clone().into()),
+            clear_color: ClearColorConfig::Custom(Color::BLACK),
+            ..default()
+        },
+        Projection::from(OrthographicProjection {
+            near: -1000.0,
+            scaling_mode: ScalingMode::Fixed {
+                width:  200.0,
+                height: 150.0,
+            },
+            ..OrthographicProjection::default_3d()
+        }),
+        Transform::from_rotation(Quat::from_rotation_z(PI)),
+        RENDER_LAYER_SPECIAL,
+    ));
+
+    let ami_intro = asset_server.load("sprites/ami_intro.png");
+    asset_tracker.push(ami_intro.clone_weak().untyped());
+    let ami_layout = TextureAtlasLayout::from_grid(uvec2(128, 96), 10, 6, None, None);
+    let ami_layout = asset_server.add(ami_layout);
+
+    commands.spawn((
+        OnEggScene,
+        CrtSprite,
+        Sprite::from_atlas_image(ami_intro, ami_layout.into()),
+        SpriteAnimation::set_frame(59),
+        Transform::default(),
+        Visibility::default(),
+        RENDER_LAYER_SPECIAL,
+    ));
+
+    commands.insert_resource(CrtRenderTarget(image_handle));
+}
+
+fn bind_render_target_to_panel(
+    q_gltf_materials: Query<(&GltfMaterialName, &MeshMaterial3d<StandardMaterial>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    render_target: Res<CrtRenderTarget>,
+    mut commands: Commands,
+) {
+    if let Some(material_handle) = q_gltf_materials
+        .iter()
+        .find_map(|(name, handle)| (name.0 == "CRT_Panel").then_some(handle))
+    {
+        if let Some(material) = materials.get_mut(&material_handle.0) {
+            material.base_color_texture = Some(render_target.0.clone());
+            commands.remove_resource::<CrtRenderTarget>();
+            info!("CRT Panel Texture set to Special Camera render target");
+        }
+    }
 }
 
 const ROOM_BOUNDARY: Vec3 = Vec3::splat(1.3);
@@ -303,6 +423,7 @@ fn move_player(
         let next_position = transform.translation + translation;
 
         transform.translation = next_position.clamp(-ROOM_BOUNDARY, ROOM_BOUNDARY);
+        // transform.translation = next_position;
     }
 }
 
@@ -1164,6 +1285,8 @@ fn egg_special(
 }
 
 fn update_crack(
+    user_input: Res<UserInput>,
+    q_element_info: Query<&EggSpecialElementInfo>,
     crack: Single<
         (
             &mut Health,
@@ -1173,17 +1296,24 @@ fn update_crack(
         With<Crack>,
     >,
     mut e_reader: EventReader<SpriteAnimationFinished>,
-    user_input: Res<UserInput>,
+    mut elements: Local<Vec<Entity>>,
 ) {
     if !matches!(user_input.interact, KeyState::Press | KeyState::Hold) || e_reader.is_empty() {
         return;
+    }
+
+    if elements.is_empty() {
+        elements.extend(q_element_info.iter().flat_map(|info| info.parts.clone()));
     }
 
     let (mut crack_health, mut current_material, crack_materials) = crack.into_inner();
 
     let old_damage_level = damage_level(crack_health.0);
 
-    let damage = e_reader.read().count() as u8;
+    let damage = e_reader
+        .read()
+        .filter(|event| elements.contains(&event.0))
+        .count() as u8;
     e_reader.clear();
 
     crack_health.0 = crack_health.saturating_sub(damage);

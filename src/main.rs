@@ -35,6 +35,7 @@ const WINDOW_HEIGHT: f32 = 720.0;
 
 const RENDER_LAYER_WORLD: RenderLayers = RenderLayers::layer(0);
 const RENDER_LAYER_OVERLAY: RenderLayers = RenderLayers::layer(1);
+const RENDER_LAYER_SPECIAL: RenderLayers = RenderLayers::layer(2);
 
 #[derive(Debug, Component)]
 struct OverlayCamera;
