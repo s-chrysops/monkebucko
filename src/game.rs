@@ -182,12 +182,24 @@ fn just_pressed_jump(user_input: Res<UserInput>) -> bool {
     matches!(user_input.jump, KeyState::Press)
 }
 
-fn _just_pressed_swap(user_input: Res<UserInput>) -> bool {
+fn just_pressed_swap(user_input: Res<UserInput>) -> bool {
     matches!(user_input.swap, KeyState::Press)
 }
 
 fn just_pressed_interact(user_input: Res<UserInput>) -> bool {
     matches!(user_input.interact, KeyState::Press)
+}
+
+fn _pressing_jump(user_input: Res<UserInput>) -> bool {
+    matches!(user_input.jump, KeyState::Press | KeyState::Hold)
+}
+
+fn _pressing_swap(user_input: Res<UserInput>) -> bool {
+    matches!(user_input.swap, KeyState::Press | KeyState::Hold)
+}
+
+fn pressing_interact(user_input: Res<UserInput>) -> bool {
+    matches!(user_input.interact, KeyState::Press | KeyState::Hold)
 }
 
 fn pressed_advance_key(

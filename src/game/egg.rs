@@ -32,7 +32,19 @@ enum EggState {
     #[default]
     Loading,
     Ready,
-    Special,
+    Cracking,
+}
+
+#[derive(SubStates, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[source(EggState = EggState::Cracking)]
+enum CrackingPhase {
+    #[default]
+    Easing,
+    Punch,
+    FastPunch,
+    QuadPunch,
+    Violence,
+    Fading,
 }
 
 #[derive(Debug, Component, Deref, DerefMut)]
@@ -51,7 +63,7 @@ pub fn egg_plugin(app: &mut App) {
             spawn_player,
             spawn_world,
             spawn_stars,
-            spawn_egg_special_elements,
+            spawn_cracking_elements,
             setup_crt,
             cursor_grab,
         ),
@@ -76,12 +88,29 @@ pub fn egg_plugin(app: &mut App) {
         )
             .run_if(in_state(EggState::Ready)),
     )
-    .add_systems(OnEnter(EggState::Special), setup_camera_movements)
+    .add_systems(OnEnter(EggState::Cracking), setup_ease_and_play)
     .add_systems(
         Update,
-        (egg_special, update_crack).run_if(in_state(EggState::Special)),
+        (
+            advance_crack_phase.run_if(not(pressing_interact).and(just_pressed_swap)),
+            exit_egg.run_if(just_pressed_jump),
+            update_crack,
+        )
+            .run_if(in_state(EggState::Cracking)),
+    )
+    .add_systems(
+        Update,
+        (
+            wait_for_ease.run_if(in_state(CrackingPhase::Easing)),
+            punch.run_if(in_state(CrackingPhase::Punch)),
+            fast_punch.run_if(in_state(CrackingPhase::FastPunch)),
+            quad_punch.run_if(in_state(CrackingPhase::QuadPunch)),
+            violence.run_if(in_state(CrackingPhase::Violence)),
+            exit_wait_for_fade.run_if(in_state(CrackingPhase::Fading)),
+        ),
     )
     .add_sub_state::<EggState>()
+    .add_sub_state::<CrackingPhase>()
     .init_resource::<StarResources>();
 }
 
@@ -271,7 +300,7 @@ fn spawn_world(
             PICKABLE,
             EntityInteraction::Special(crack_entity),
             SpecialInteraction::new(move |commands: &mut Commands, _entity: Entity| {
-                commands.set_state(EggState::Special);
+                commands.set_state(EggState::Cracking);
             }),
         ))
         .observe(over_interactables)
@@ -428,21 +457,21 @@ fn move_player(
 }
 
 #[derive(Debug, PartialEq)]
-enum EggSpecialElementId {
+enum CrackingElementId {
     PunchLower,
     PunchUpper,
     Guns,
 }
 
 #[derive(Debug, Component)]
-struct EggSpecialElementInfo {
-    id:       EggSpecialElementId,
+struct CrackingElementInfo {
+    id:       CrackingElementId,
     parts:    Vec<Entity>,
     in_node:  AnimationNodeIndex,
     out_node: AnimationNodeIndex,
 }
 
-fn spawn_egg_special_elements(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn spawn_cracking_elements(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Default animation duration: 1.0 second
     // const MEDIUM_DURATION: f32 = 0.5;
     const FAST_DURATION: f32 = 0.125;
@@ -528,8 +557,8 @@ fn spawn_egg_special_elements(mut commands: Commands, asset_server: Res<AssetSer
             .spawn((
                 OnEggScene,
                 punch_lower_name,
-                EggSpecialElementInfo {
-                    id:       EggSpecialElementId::PunchLower,
+                CrackingElementInfo {
+                    id:       CrackingElementId::PunchLower,
                     parts:    punch_lower_parts.to_vec(),
                     in_node:  punch_lower_nodes[0],
                     out_node: punch_lower_nodes[1],
@@ -662,8 +691,8 @@ fn spawn_egg_special_elements(mut commands: Commands, asset_server: Res<AssetSer
             .entity(punch_upper)
             .add_children(&punch_upper_parts)
             .insert((
-                EggSpecialElementInfo {
-                    id:       EggSpecialElementId::PunchUpper,
+                CrackingElementInfo {
+                    id:       CrackingElementId::PunchUpper,
                     parts:    punch_upper_parts.to_vec(),
                     in_node:  punch_upper_nodes[0],
                     out_node: punch_upper_nodes[1],
@@ -854,8 +883,8 @@ fn spawn_egg_special_elements(mut commands: Commands, asset_server: Res<AssetSer
         let guns_graph_handle = asset_server.add(guns_graph);
 
         commands.entity(guns).add_children(&elements).insert((
-            EggSpecialElementInfo {
-                id:       EggSpecialElementId::Guns,
+            CrackingElementInfo {
+                id:       CrackingElementId::Guns,
                 parts:    elements,
                 in_node:  guns_nodes[0],
                 out_node: guns_nodes[1],
@@ -981,17 +1010,18 @@ fn move_stars(
 #[derive(Debug, Deref, Component)]
 struct ExitNode(AnimationNodeIndex);
 
-const EASE_DURATION: f32 = 3.0;
-const SPECIAL_FRAME_TRANSLATION: Vec3 = vec3(1.0, 1.0, 0.5);
-const SPECIAL_FRAME_ROTATION: Quat = Quat::from_array([0.0, FRAC_1_SQRT_2, 0.0, -FRAC_1_SQRT_2]);
-const CRACK_FRAME_TRANSLATION: Vec3 = vec3(1.49, 1.0, 0.5);
-
-fn setup_camera_movements(
+fn setup_ease_and_play(
     mut commands: Commands,
     mut animation_graphs: ResMut<Assets<AnimationGraph>>,
     mut animation_clips: ResMut<Assets<AnimationClip>>,
     player: Single<(Entity, &Transform), With<Player>>,
 ) {
+    const EASE_DURATION: f32 = 3.0;
+    const SPECIAL_FRAME_TRANSLATION: Vec3 = vec3(1.0, 1.0, 0.5);
+    const SPECIAL_FRAME_ROTATION: Quat =
+        Quat::from_array([0.0, FRAC_1_SQRT_2, 0.0, -FRAC_1_SQRT_2]);
+    const CRACK_FRAME_TRANSLATION: Vec3 = vec3(1.49, 1.0, 0.5);
+
     let (player_entity, player_transform) = player.into_inner();
 
     let player_target_name = Name::new("Player");
@@ -1066,227 +1096,228 @@ fn setup_camera_movements(
     ));
 }
 
-#[derive(Debug, Default)]
-enum EggSpecialState {
-    #[default]
-    Easing,
-    Punch,
-    PunchRapid,
-    MorePunchRapid,
-    Violence,
-    Fading,
+fn wait_for_ease(
+    player_animation: Single<&AnimationPlayer, With<Player>>,
+    mut q_elements: Query<(&CrackingElementInfo, &mut AnimationPlayer), Without<Player>>,
+    mut crack_phase: ResMut<NextState<CrackingPhase>>,
+) {
+    if player_animation.all_finished() {
+        if let Some((info, mut animator)) = q_elements
+            .iter_mut()
+            .find(|(info, _animator)| matches!(info.id, CrackingElementId::PunchLower))
+        {
+            animator.play(info.in_node);
+            crack_phase.set(CrackingPhase::Punch);
+        }
+    }
 }
 
-#[allow(clippy::too_many_arguments)] // lmao
-fn egg_special(
-    mut commands: Commands,
-    player: Single<(&mut AnimationPlayer, &ExitNode), With<Player>>,
-    mut controllers: Query<(&EggSpecialElementInfo, &mut AnimationPlayer), Without<Player>>,
-    mut q_sprite_animations: Query<&mut SpriteAnimation>,
-    crack: Single<&Health, With<Crack>>,
+fn advance_crack_phase(
+    crack_phase: Res<State<CrackingPhase>>,
+    mut next_crack_phase: ResMut<NextState<CrackingPhase>>,
+    mut q_elements: Query<(&CrackingElementInfo, &mut AnimationPlayer), Without<Player>>,
+) {
+    match **crack_phase {
+        CrackingPhase::Punch => next_crack_phase.set(CrackingPhase::FastPunch),
+        CrackingPhase::FastPunch => {
+            if let Some((info, mut animator)) = q_elements
+                .iter_mut()
+                .find(|(info, _animator)| matches!(info.id, CrackingElementId::PunchUpper))
+            {
+                animator.play(info.in_node);
+            }
+            next_crack_phase.set(CrackingPhase::QuadPunch)
+        }
+        CrackingPhase::QuadPunch => next_crack_phase.set(CrackingPhase::Violence),
+        _ => (),
+    }
+}
+
+fn punch(
     user_input: Res<UserInput>,
-    mut state: Local<EggSpecialState>,
+    q_elements: Query<&CrackingElementInfo, Without<Player>>,
+    mut q_sprite_animations: Query<&mut SpriteAnimation>,
     mut right_left: Local<bool>,
 ) {
-    let (mut player_animation, exit_node) = player.into_inner();
-
-    match *state {
-        EggSpecialState::Easing => {
-            if player_animation.all_finished() {
-                let (info, mut player) = controllers
-                    .iter_mut()
-                    .find(|(info, _player)| info.id == EggSpecialElementId::PunchLower)
-                    .unwrap();
-                player.play(info.in_node);
-
-                *state = EggSpecialState::Punch;
+    if let Some(info) = q_elements
+        .iter()
+        .find(|info| matches!(info.id, CrackingElementId::PunchLower))
+    {
+        let current_fist = info.parts[*right_left as usize];
+        if let Ok(mut animation) = q_sprite_animations.get_mut(current_fist) {
+            match user_input.interact {
+                KeyState::Press => *animation = SpriteAnimation::set_frame(1),
+                KeyState::Release => {
+                    *animation = SpriteAnimation::set_frame(0);
+                    *right_left ^= true;
+                }
+                _ => (),
             }
         }
-        EggSpecialState::Punch => {
-            if matches!(user_input.interact, KeyState::Press) {
-                let (info, _player) = controllers
-                    .iter()
-                    .find(|(info, _player)| info.id == EggSpecialElementId::PunchLower)
-                    .unwrap();
+    }
+}
 
-                *q_sprite_animations
-                    .get_mut(info.parts[*right_left as usize])
-                    .unwrap() = SpriteAnimation::set_frame(1);
-            } else if matches!(user_input.interact, KeyState::Release)
-                || matches!(user_input.swap, KeyState::Press)
-            {
-                let (info, _player) = controllers
-                    .iter()
-                    .find(|(info, _player)| info.id == EggSpecialElementId::PunchLower)
-                    .unwrap();
+fn fast_punch(
+    user_input: Res<UserInput>,
+    q_elements: Query<&CrackingElementInfo, Without<Player>>,
+    mut q_sprite_animations: Query<&mut SpriteAnimation>,
+    mut right_left: Local<bool>,
+) {
+    const FLIP: [bool; 2] = [false, true];
 
-                *q_sprite_animations
-                    .get_mut(info.parts[*right_left as usize])
-                    .unwrap() = SpriteAnimation::set_frame(0);
-
-                *right_left ^= true;
-            }
-
-            if matches!(user_input.swap, KeyState::Press) {
-                *state = EggSpecialState::PunchRapid;
-            }
-        }
-        EggSpecialState::PunchRapid => {
-            if matches!(user_input.interact, KeyState::Press) {
-                let (info, _player) = controllers
-                    .iter()
-                    .find(|(info, _player)| info.id == EggSpecialElementId::PunchLower)
-                    .unwrap();
-
-                info.parts
-                    .iter()
-                    .zip([false, true])
-                    .for_each(|(&entity, flip)| {
+    if let Some(info) = q_elements
+        .iter()
+        .find(|info| info.id == CrackingElementId::PunchLower)
+    {
+        info.parts.iter().zip(FLIP).for_each(|(&entity, flip)| {
+            if let Ok(mut animation) = q_sprite_animations.get_mut(entity) {
+                match user_input.interact {
+                    KeyState::Press => {
                         let toggle = match *right_left ^ flip {
                             true => 1.0,
                             false => 0.0,
                         };
-                        *q_sprite_animations.get_mut(entity).unwrap() =
-                            SpriteAnimation::new(0, 1, 12)
-                                .with_delay(0.083 * toggle)
-                                .looping();
-                    });
-            } else if matches!(user_input.interact, KeyState::Release)
-                || matches!(user_input.swap, KeyState::Press)
-            {
-                let (info, _player) = controllers
-                    .iter()
-                    .find(|(info, _player)| info.id == EggSpecialElementId::PunchLower)
-                    .unwrap();
-
-                info.parts.iter().for_each(|&entity| {
-                    *q_sprite_animations.get_mut(entity).unwrap() = SpriteAnimation::set_frame(0);
-                });
-
-                *right_left ^= true;
+                        *animation = SpriteAnimation::new(0, 1, 12)
+                            .with_delay(0.083 * toggle)
+                            .looping();
+                    }
+                    KeyState::Release => {
+                        *animation = SpriteAnimation::set_frame(0);
+                        *right_left ^= true;
+                    }
+                    _ => (),
+                }
             }
+        });
+    }
+}
 
-            if matches!(user_input.swap, KeyState::Press) {
-                let (info, mut player) = controllers
-                    .iter_mut()
-                    .find(|(info, _)| info.id == EggSpecialElementId::PunchUpper)
-                    .unwrap();
-                player.play(info.in_node);
-
-                *state = EggSpecialState::MorePunchRapid;
+fn quad_punch(
+    user_input: Res<UserInput>,
+    q_elements: Query<&CrackingElementInfo, Without<Player>>,
+    mut q_sprite_animations: Query<&mut SpriteAnimation>,
+) {
+    q_elements
+        .iter()
+        .filter_map(|info| {
+            matches!(
+                info.id,
+                CrackingElementId::PunchLower | CrackingElementId::PunchUpper
+            )
+            .then_some(&info.parts)
+        })
+        .flatten()
+        .enumerate()
+        .for_each(|(i, &entity)| {
+            if let Ok(mut animation) = q_sprite_animations.get_mut(entity) {
+                match user_input.interact {
+                    KeyState::Press => {
+                        *animation = SpriteAnimation::new(0, 1, 16)
+                            .with_delay(0.016 * i as f32)
+                            .looping()
+                    }
+                    KeyState::Release => *animation = SpriteAnimation::set_frame(0),
+                    _ => (),
+                }
             }
-        }
-        EggSpecialState::MorePunchRapid => {
-            if matches!(user_input.interact, KeyState::Press) {
-                controllers
-                    .iter()
-                    .filter_map(|(info, _player)| {
-                        (info.id == EggSpecialElementId::PunchLower
-                            || info.id == EggSpecialElementId::PunchUpper)
-                            .then_some(&info.parts)
-                    })
-                    .flatten()
-                    .enumerate()
-                    .for_each(|(i, &entity)| {
-                        *q_sprite_animations.get_mut(entity).unwrap() =
-                            SpriteAnimation::new(0, 1, 16)
-                                .with_delay(0.016 * i as f32)
-                                .looping()
-                    });
-            } else if matches!(user_input.interact, KeyState::Release)
-                || matches!(user_input.swap, KeyState::Press)
-            {
-                controllers
-                    .iter()
-                    .filter_map(|(info, _player)| {
-                        (info.id == EggSpecialElementId::PunchLower
-                            || info.id == EggSpecialElementId::PunchUpper)
-                            .then_some(&info.parts)
-                    })
-                    .flatten()
-                    .for_each(|&entity| {
-                        *q_sprite_animations.get_mut(entity).unwrap() =
-                            SpriteAnimation::set_frame(0);
-                    });
-            }
+        });
+}
 
-            if matches!(user_input.swap, KeyState::Press) {
-                *state = EggSpecialState::Violence;
-            }
-        }
-        EggSpecialState::Violence => {
-            const GUNS_SPRITE_ANIMATION_INFO: [(usize, usize, u8); 4] =
-                [(0, 3, 60), (0, 14, 24), (0, 3, 24), (0, 3, 12)];
-
-            if matches!(user_input.interact, KeyState::Press) {
-                controllers
-                    .iter_mut()
-                    .filter(|(info, _player)| {
-                        info.id == EggSpecialElementId::PunchLower
-                            || info.id == EggSpecialElementId::PunchUpper
-                    })
-                    .for_each(|(info, mut player)| {
-                        player.stop_all().play(info.out_node);
-                    });
-
-                let (info, mut player) = controllers
-                    .iter_mut()
-                    .find(|(info, _player)| info.id == EggSpecialElementId::Guns)
-                    .unwrap();
-                player.stop_all().play(info.in_node);
-
-                info.parts.iter().zip(GUNS_SPRITE_ANIMATION_INFO).for_each(
-                    |(&entity, (first, last, fps))| {
-                        *q_sprite_animations.get_mut(entity).unwrap() =
-                            SpriteAnimation::new(first, last, fps).looping();
-                    },
-                );
-            } else if matches!(user_input.interact, KeyState::Release) {
-                controllers
-                    .iter_mut()
-                    .filter(|(info, _player)| {
-                        info.id == EggSpecialElementId::PunchLower
-                            || info.id == EggSpecialElementId::PunchUpper
-                    })
-                    .for_each(|(info, mut player)| {
-                        player.stop_all().play(info.in_node);
-                    });
-
-                let (info, mut player) = controllers
-                    .iter_mut()
-                    .find(|(info, _player)| info.id == EggSpecialElementId::Guns)
-                    .unwrap();
-                player.stop_all().play(info.out_node);
-                info.parts.iter().for_each(|&entity| {
-                    *q_sprite_animations.get_mut(entity).unwrap() = SpriteAnimation::set_frame(0);
-                });
-            }
-        }
-        EggSpecialState::Fading => {
-            if player_animation.all_finished() {
-                commands.set_state(GameState::TopDown);
-            }
-        }
+fn violence(
+    user_input: Res<UserInput>,
+    mut q_elements: Query<(&CrackingElementInfo, &mut AnimationPlayer), Without<Player>>,
+    mut q_sprite_animations: Query<&mut SpriteAnimation>,
+) {
+    struct SpriteInfo {
+        len: usize,
+        fps: u8,
     }
 
-    if crack.eq(&u8::MIN) && matches!(user_input.jump, KeyState::Press) {
-        controllers
-            .iter_mut()
-            .filter(|(info, player)| player.is_playing_animation(info.in_node))
-            .for_each(|(info, mut player)| {
-                info.parts.iter().for_each(|&entity| {
-                    *q_sprite_animations.get_mut(entity).unwrap() = SpriteAnimation::set_frame(0);
-                });
-                player.stop_all().play(info.out_node);
+    const GUNS_SPRITE_ANIMATION_INFO: [SpriteInfo; 4] = [
+        SpriteInfo { len: 4, fps: 60 },
+        SpriteInfo { len: 15, fps: 24 },
+        SpriteInfo { len: 4, fps: 24 },
+        SpriteInfo { len: 4, fps: 12 },
+    ];
+
+    q_elements
+        .iter_mut()
+        .for_each(|(info, mut animator)| match info.id {
+            CrackingElementId::Guns => match user_input.interact {
+                KeyState::Press => {
+                    animator.stop_all().play(info.in_node);
+                    info.parts.iter().zip(GUNS_SPRITE_ANIMATION_INFO).for_each(
+                        |(&entity, SpriteInfo { len, fps })| {
+                            if let Ok(mut animation) = q_sprite_animations.get_mut(entity) {
+                                *animation = SpriteAnimation::new(0, len - 1, fps).looping();
+                            }
+                        },
+                    );
+                }
+                KeyState::Release => {
+                    animator.stop_all().play(info.out_node);
+                    info.parts.iter().for_each(|&entity| {
+                        if let Ok(mut animation) = q_sprite_animations.get_mut(entity) {
+                            *animation = SpriteAnimation::set_frame(0);
+                        }
+                    });
+                }
+                _ => (),
+            },
+            // Upper & Lower Punches
+            _ => match user_input.interact {
+                KeyState::Press => {
+                    animator.stop_all().play(info.out_node);
+                }
+                KeyState::Release => {
+                    animator.stop_all().play(info.in_node);
+                }
+                _ => (),
+            },
+        });
+}
+
+fn exit_egg(
+    crack_health: Single<&Health, With<Crack>>,
+    mut q_elements: Query<(&CrackingElementInfo, &mut AnimationPlayer), Without<Player>>,
+    mut q_sprite_animations: Query<&mut SpriteAnimation>,
+    player: Single<(&mut AnimationPlayer, &ExitNode), With<Player>>,
+    mut crack_phase: ResMut<NextState<CrackingPhase>>,
+) {
+    if !crack_health.eq(&u8::MIN) {
+        return;
+    }
+
+    q_elements
+        .iter_mut()
+        .filter(|(info, animator)| animator.is_playing_animation(info.in_node))
+        .for_each(|(info, mut animator)| {
+            animator.stop_all().play(info.out_node);
+            info.parts.iter().for_each(|&entity| {
+                if let Ok(mut animation) = q_sprite_animations.get_mut(entity) {
+                    *animation = SpriteAnimation::set_frame(0);
+                }
             });
-        player_animation.stop_all().play(exit_node.0);
-        *state = EggSpecialState::Fading;
+        });
+
+    let (mut player_animation, exit_node) = player.into_inner();
+    player_animation.stop_all().play(exit_node.0);
+
+    crack_phase.set(CrackingPhase::Fading);
+}
+
+fn exit_wait_for_fade(
+    player_animation: Single<&AnimationPlayer, With<Player>>,
+    mut game_state: ResMut<NextState<GameState>>,
+) {
+    if player_animation.all_finished() {
+        game_state.set(GameState::TopDown);
     }
 }
 
 fn update_crack(
     user_input: Res<UserInput>,
-    q_element_info: Query<&EggSpecialElementInfo>,
+    q_element_info: Query<&CrackingElementInfo>,
     crack: Single<
         (
             &mut Health,
