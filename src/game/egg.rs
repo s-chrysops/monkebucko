@@ -60,10 +60,10 @@ pub fn egg_plugin(app: &mut App) {
     app.add_systems(
         OnEnter(GameState::Egg),
         (
-            spawn_player,
-            spawn_world,
+            setup_player,
+            setup_world,
             setup_stars,
-            spawn_cracking_elements,
+            setup_cracking_elements,
             setup_crt,
             cursor_grab,
         ),
@@ -129,7 +129,7 @@ fn wait_till_loaded(
 // #[derive(Debug, Component, Deref, DerefMut)]
 // struct Velocity(Vec3);
 
-fn spawn_player(mut commands: Commands) {
+fn setup_player(mut commands: Commands) {
     info!("Spawning player");
     commands.spawn((
         OnEggScene,
@@ -172,7 +172,7 @@ const CRACK_HEALTH: u8 = 200;
 #[derive(Debug, Deref, Component)]
 struct CrackMaterials([Handle<StandardMaterial>; 6]);
 
-fn spawn_world(
+fn setup_world(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -180,44 +180,10 @@ fn spawn_world(
     asset_server: Res<AssetServer>,
 ) {
     info!("Spawning egg world");
-    let floor = meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(1.5)));
-    let ceiling = meshes.add(Plane3d::new(Vec3::NEG_Y, Vec2::splat(1.5)));
 
-    let wall_west = meshes.add(Plane3d::new(Vec3::X, Vec2::splat(1.5)));
-    let wall_east = meshes.add(Plane3d::new(Vec3::NEG_X, Vec2::splat(1.5)));
-    let wall_north = meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(1.5)));
-
-    let wall_south_upper = meshes.add(Cuboid::new(3.0, 1.0, 0.05));
-    let wall_south_lower = meshes.add(Cuboid::new(3.0, 0.8, 0.05));
-    let wall_south_right = meshes.add(Cuboid::new(0.8, 1.2, 0.05));
-    let wall_south_left = meshes.add(Cuboid::new(0.2, 1.2, 0.05));
-    let window_sill = meshes.add(Cuboid::new(2.0, 0.01, 0.1));
-
-    let bed = meshes.add(Cuboid::new(2.4, 0.3, 1.0));
-
-    let material = materials.add(Color::WHITE);
-
-    let room_elements = [
-        (ceiling, (0.0, 3.0, 0.0)),
-        (floor, (0.0, 0.0, 0.0)),
-        (wall_west, (-1.5, 1.5, 0.0)),
-        (wall_east, (1.5, 1.5, 0.0)),
-        (wall_north, (0.0, 1.5, -1.5)),
-        (wall_south_upper, (0.0, 2.5, 1.525)),
-        (wall_south_lower, (0.0, 0.4, 1.525)),
-        (wall_south_right, (-1.1, 1.4, 1.525)),
-        (wall_south_left, (1.4, 1.4, 1.525)),
-        (window_sill, (0.3, 0.8, 1.5)),
-    ];
-
-    commands.spawn_batch(room_elements.map(|(mesh, (x, y, z))| {
-        (
-            OnEggScene,
-            Mesh3d(mesh),
-            MeshMaterial3d(material.clone()),
-            Transform::from_xyz(x, y, z),
-        )
-    }));
+    let scene_room = asset_server.load(GltfAssetLabel::Scene(0).from_asset("egg.glb"));
+    asset_tracker.push(scene_room.clone_weak().untyped());
+    commands.spawn((OnEggScene, SceneRoot(scene_room)));
 
     // Window Glass
     commands
@@ -244,19 +210,12 @@ fn spawn_world(
         .observe(over_interactables)
         .observe(out_interactables);
 
-    commands.spawn((
-        OnEggScene,
-        Mesh3d(bed),
-        MeshMaterial3d(material.clone()),
-        Transform::from_xyz(-0.3, 0.16, -1.0),
-    ));
-
     // Star light
     commands.spawn((
         OnEggScene,
-        PointLight {
+        DirectionalLight {
             color: Color::from(LAVENDER),
-            intensity: 10000.0,
+            illuminance: 4.0,
             shadows_enabled: true,
             ..default()
         },
@@ -309,12 +268,11 @@ fn spawn_world(
     commands.spawn((
         OnEggScene,
         PointLight {
-            color: Color::from(LAVENDER),
-            intensity: 50000.0,
+            intensity: 8192.0,
             shadows_enabled: true,
             ..default()
         },
-        Transform::from_xyz(0.0, 1.4, 0.0),
+        Transform::from_xyz(0.0, 2.9, 0.0),
     ));
 }
 
@@ -329,10 +287,6 @@ fn setup_crt(
     mut asset_tracker: ResMut<AssetTracker>,
     asset_server: Res<AssetServer>,
 ) {
-    let scene_crt = asset_server.load(GltfAssetLabel::Scene(0).from_asset("crt.glb"));
-    asset_tracker.push(scene_crt.clone_weak().untyped());
-    commands.spawn(SceneRoot(scene_crt));
-
     // This is the texture that will be rendered to.
     let mut image = Image::new_fill(
         Extent3d {
@@ -471,7 +425,7 @@ struct CrackingElementInfo {
     out_node: AnimationNodeIndex,
 }
 
-fn spawn_cracking_elements(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup_cracking_elements(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Default animation duration: 1.0 second
     // const MEDIUM_DURATION: f32 = 0.5;
     const FAST_DURATION: f32 = 0.125;
