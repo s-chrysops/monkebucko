@@ -13,7 +13,7 @@ use crate::{
 
 use super::*;
 
-#[derive(SubStates, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash, SubStates)]
 #[source(GameState = GameState::Bones)]
 enum BonesState {
     #[default]
@@ -54,7 +54,7 @@ pub fn bones_plugin(app: &mut App) {
                 update_player_animation,
             )
                 .chain()
-                .run_if(in_state(MovementState::Enabled)),
+                .run_if(in_state(MovementEnabled)),
             enemy_sprint,
             enemy_chase,
             enemy_jump,

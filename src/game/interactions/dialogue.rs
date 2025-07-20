@@ -223,7 +223,6 @@ fn conclude_dialogue(
     commands.entity(current_dialogue.into_inner()).despawn();
     commands.entity(interaction_panel.into_inner()).despawn();
     commands.set_state(InteractionState::None);
-    commands.set_state(MovementState::Enabled);
     commands.remove_resource::<DialogueCurrentId>();
 }
 

@@ -19,7 +19,7 @@ use crate::{
 #[derive(Debug, Component)]
 struct OnTopDown;
 
-#[derive(SubStates, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash, SubStates)]
 #[source(GameState = GameState::TopDown)]
 enum TopDownState {
     #[default]
@@ -37,7 +37,7 @@ pub fn topdown_plugin(app: &mut App) {
         )
         .add_systems(
             OnEnter(TopDownState::Ready),
-            (fade_from_whatever, save_progress_to_disk),
+            (fade_from_whatever, save_progress_to_disk, enable_movement),
         )
         .add_systems(
             Update,
@@ -52,7 +52,7 @@ pub fn topdown_plugin(app: &mut App) {
                     .pipe(play_interactions)
                     .run_if(in_state(InteractionState::None).and(just_pressed_interact)),
             )
-                .run_if(in_state(MovementState::Enabled))
+                .run_if(in_state(MovementEnabled))
                 .run_if(in_state(TopDownState::Ready)),
         )
         .add_systems(OnEnter(TopDownState::Warping), fade_to_black)
@@ -264,11 +264,9 @@ fn setup_collider_bodies(
 fn wait_for_ready(
     current_map: Res<CurrentMap>,
     mut topdown_state: ResMut<NextState<TopDownState>>,
-    mut movement_state: ResMut<NextState<MovementState>>,
 ) {
     if current_map.ready {
         topdown_state.set(TopDownState::Ready);
-        movement_state.set(MovementState::Enabled);
     }
 }
 

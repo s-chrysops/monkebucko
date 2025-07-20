@@ -33,12 +33,15 @@ mod auto_scaling;
 const WINDOW_WIDTH: f32 = 1280.0;
 const WINDOW_HEIGHT: f32 = 720.0;
 
-#[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
-enum AppState {
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, States)]
+pub enum AppState {
     #[default]
     Splash,
     Menu,
-    Game,
+    Game {
+        paused:   bool,
+        can_move: bool,
+    },
 }
 
 fn main() {

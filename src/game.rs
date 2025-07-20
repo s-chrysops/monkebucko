@@ -32,20 +32,26 @@ const _Z_BASE: f32 = 0.0;
 const Z_SPRITES: f32 = 1.0;
 const Z_EFFECTS: f32 = 2.0;
 
-#[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct InGame;
+
+impl ComputedStates for InGame {
+    type SourceStates = AppState;
+    fn compute(sources: Self::SourceStates) -> Option<Self> {
+        match sources {
+            AppState::Game { .. } => Some(InGame),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, SubStates)]
+#[source(InGame = InGame)]
 enum GameState {
     #[default]
-    Loading,
     Egg,
     TopDown,
     Bones,
-}
-
-#[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
-enum MovementState {
-    Enabled,
-    #[default]
-    Disabled,
 }
 
 #[derive(Debug, Component)]
@@ -60,19 +66,60 @@ struct SpecialCamera;
 pub fn game_plugin(app: &mut App) {
     app.add_plugins((effects_plugin, interactions_plugin))
         .add_plugins((bones_plugin, egg_plugin, topdown_plugin))
-        .add_systems(OnEnter(AppState::Game), game_setup)
+        .add_systems(OnEnter(InGame), game_setup)
         .add_systems(PreUpdate, get_user_input)
+        .add_computed_state::<InGame>()
+        .add_computed_state::<MovementEnabled>()
+        .add_sub_state::<GameState>()
         .init_resource::<AssetTracker>()
         .init_resource::<UserInput>()
-        .init_state::<GameState>()
-        .init_state::<MovementState>()
         .register_type::<UserInput>();
 }
 
-fn game_setup(mut commands: Commands) {
-    commands.set_state(GameState::Egg);
+fn game_setup(mut _commands: Commands) {
+    // commands.set_state(GameState::Egg);
 }
 
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct MovementEnabled;
+
+impl ComputedStates for MovementEnabled {
+    type SourceStates = AppState;
+    fn compute(sources: Self::SourceStates) -> Option<Self> {
+        match sources {
+            AppState::Game {
+                paused: false,
+                can_move: true,
+            } => Some(MovementEnabled),
+            _ => None,
+        }
+    }
+}
+
+fn enable_movement(
+    current_app_state: Res<State<AppState>>,
+    mut next_app_state: ResMut<NextState<AppState>>,
+) {
+    if let AppState::Game { paused, .. } = current_app_state.get() {
+        next_app_state.set(AppState::Game {
+            paused:   *paused,
+            can_move: true,
+        });
+    }
+}
+
+fn disable_movement(
+    current_app_state: Res<State<AppState>>,
+    mut next_app_state: ResMut<NextState<AppState>>,
+) {
+    if let AppState::Game { paused, .. } = current_app_state.get() {
+        next_app_state.set(AppState::Game {
+            paused:   *paused,
+            can_move: false,
+        });
+    }
+}
 #[derive(Debug, Default, Deref, DerefMut, Resource)]
 struct AssetTracker {
     #[deref]
@@ -215,14 +262,12 @@ fn pressed_advance_key(
     ])
 }
 
-fn cursor_grab(q_windows: Single<&mut Window, With<PrimaryWindow>>) {
-    let mut primary_window = q_windows.into_inner();
+fn cursor_grab(mut primary_window: Single<&mut Window, With<PrimaryWindow>>) {
     primary_window.cursor_options.grab_mode = CursorGrabMode::Locked;
     primary_window.cursor_options.visible = false;
 }
 
-fn cursor_ungrab(q_windows: Single<&mut Window, With<PrimaryWindow>>) {
-    let mut primary_window = q_windows.into_inner();
+fn cursor_ungrab(mut primary_window: Single<&mut Window, With<PrimaryWindow>>) {
     primary_window.cursor_options.grab_mode = CursorGrabMode::None;
     primary_window.cursor_options.visible = true;
 }

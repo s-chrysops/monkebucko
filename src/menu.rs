@@ -17,13 +17,13 @@ const HOVERED_BUTTON: Color = Color::srgb(0.25, 0.25, 0.25);
 const HOVERED_PRESSED_BUTTON: Color = Color::srgb(0.25, 0.65, 0.25);
 const PRESSED_BUTTON: Color = Color::srgb(0.35, 0.75, 0.35);
 
-#[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, SubStates)]
+#[source(AppState = AppState::Menu)]
 enum MenuState {
+    #[default]
     Main,
     Settings,
     Data,
-    #[default]
-    Disabled,
 }
 
 #[derive(Component)]
@@ -62,8 +62,7 @@ struct SaveSystemId(SystemId);
 pub fn menu_plugin(app: &mut App) {
     let save_system_id = app.register_system(save_settings);
 
-    app.init_state::<MenuState>()
-        .add_systems(OnEnter(AppState::Menu), menu_setup)
+    app.add_sub_state::<MenuState>()
         .add_systems(OnEnter(MenuState::Main), main_menu_setup)
         .add_systems(OnExit(MenuState::Main), despawn_screen::<OnMainMenu>)
         .add_systems(OnEnter(MenuState::Settings), settings_menu_setup)
@@ -113,10 +112,6 @@ fn menu_action(
             MenuButtonAction::BackToMainMenu => menu_state.set(MenuState::Main),
         }
     }
-}
-
-fn menu_setup(mut menu_state: ResMut<NextState<MenuState>>) {
-    menu_state.set(MenuState::Main);
 }
 
 fn main_menu_setup(mut commands: Commands, _asset_server: Res<AssetServer>) {
@@ -576,8 +571,10 @@ fn start_game(
         };
         commands.insert_resource(progress);
         commands.insert_resource(*save_slot);
-        commands.set_state(AppState::Game);
-        commands.set_state(MenuState::Disabled);
+        commands.set_state(AppState::Game {
+            paused:   false,
+            can_move: true,
+        });
     }
 }
 

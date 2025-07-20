@@ -17,7 +17,7 @@ use super::*;
 #[derive(Debug, Component)]
 struct OnEggScene;
 
-#[derive(SubStates, Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash, SubStates)]
 #[source(GameState = GameState::Egg)]
 enum EggState {
     #[default]
@@ -71,7 +71,12 @@ pub fn egg_plugin(app: &mut App) {
     .add_systems(Update, wait_till_loaded.run_if(in_state(EggState::Loading)))
     .add_systems(
         OnEnter(EggState::Ready),
-        (bind_render_target_to_panel, setup_interaction_observers).chain(),
+        (
+            bind_render_target_to_panel,
+            setup_interaction_observers,
+            enable_movement,
+        )
+            .chain(),
     )
     .add_systems(
         Update,
@@ -84,7 +89,7 @@ pub fn egg_plugin(app: &mut App) {
                     .pipe(play_interactions)
                     .run_if(just_pressed_interact),
             )
-                .run_if(in_state(MovementState::Enabled)),
+                .run_if(in_state(MovementEnabled)),
         )
             .run_if(in_state(EggState::Ready)),
     )
@@ -117,11 +122,9 @@ fn wait_till_loaded(
     asset_server: Res<AssetServer>,
     mut asset_tracker: ResMut<AssetTracker>,
     mut egg_state: ResMut<NextState<EggState>>,
-    mut movement_state: ResMut<NextState<MovementState>>,
 ) {
     if asset_tracker.is_ready(asset_server) {
         egg_state.set(EggState::Ready);
-        movement_state.set(MovementState::Enabled);
     }
 }
 
@@ -1180,7 +1183,7 @@ fn advance_crack_phase(
     mut next_crack_phase: ResMut<NextState<CrackingPhase>>,
     mut q_elements: Query<(&CrackingElementInfo, &mut AnimationPlayer), Without<Player>>,
 ) {
-    match **crack_phase {
+    match crack_phase.get() {
         CrackingPhase::Punch => next_crack_phase.set(CrackingPhase::FastPunch),
         CrackingPhase::FastPunch => {
             if let Some((info, mut animator)) = q_elements

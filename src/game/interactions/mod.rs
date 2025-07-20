@@ -10,7 +10,8 @@ use monologue::*;
 pub mod dialogue;
 pub mod monologue;
 
-#[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates)]
+#[source(InGame = InGame)]
 pub enum InteractionState {
     #[default]
     None,
@@ -20,6 +21,9 @@ pub enum InteractionState {
 
 pub fn interactions_plugin(app: &mut App) {
     app.add_plugins(dialogue_plugin)
+        .add_systems(OnExit(InteractionState::None), disable_movement)
+        .add_systems(OnExit(InteractionState::Text), enable_movement)
+        .add_systems(OnExit(InteractionState::Dialogue), enable_movement)
         .add_systems(
             Update,
             (
@@ -100,7 +104,6 @@ pub fn play_interactions(
         return;
     };
 
-    commands.set_state(MovementState::Disabled);
     match interaction {
         EntityInteraction::Text(text) => {
             commands.set_state(InteractionState::Text);
@@ -117,7 +120,6 @@ pub fn play_interactions(
         }
         EntityInteraction::Dialogue(id) => {
             if id == DialogueId::None {
-                commands.set_state(MovementState::Enabled);
                 return;
             }
 
@@ -158,7 +160,6 @@ fn conclude_text_interaction(
 ) {
     commands.entity(interaction_panel.into_inner()).despawn();
     commands.set_state(InteractionState::None);
-    commands.set_state(MovementState::Enabled);
 }
 
 #[derive(Debug, Component)]
