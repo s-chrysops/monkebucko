@@ -51,6 +51,7 @@ pub fn egg_plugin(app: &mut App) {
     app.add_systems(
         OnEnter(GameState::Egg),
         (
+            setup_pointer,
             setup_player,
             setup_world,
             setup_stars,
@@ -62,6 +63,10 @@ pub fn egg_plugin(app: &mut App) {
     .add_systems(
         OnExit(GameState::Egg),
         (despawn_screen::<OnEggScene>, cursor_ungrab),
+    )
+    .add_systems(
+        Update,
+        update_pointer.run_if(on_event::<bevy::window::WindowResized>),
     )
     .add_systems(Update, wait_till_loaded.run_if(in_state(EggState::Loading)))
     .add_systems(
@@ -122,6 +127,55 @@ fn wait_till_loaded(
 
 // #[derive(Debug, Component, Deref, DerefMut)]
 // struct Velocity(Vec3);
+
+#[derive(Debug, Component)]
+struct EggPointer;
+
+fn setup_pointer(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    primary_window: Single<(Entity, &Window), With<PrimaryWindow>>,
+) {
+    use bevy::asset::uuid::Uuid;
+    use bevy::picking::pointer::*;
+    use bevy::render::camera::NormalizedRenderTarget;
+    use bevy::window::WindowRef;
+
+    let (window_entity, window) = primary_window.into_inner();
+    let center = window.size() / 2.0;
+
+    commands.spawn((
+        OnEggScene,
+        Name::new("EggCrosshair"),
+        Sprite::from_image(asset_server.load("pointer.png")),
+        Transform::default().with_scale(Vec3::splat(0.8)),
+        RENDER_LAYER_OVERLAY,
+    ));
+
+    commands.spawn((
+        OnEggScene,
+        EggPointer,
+        Name::new("EggPointer"),
+        PointerId::Custom(Uuid::new_v4()),
+        PointerLocation::new(Location {
+            target:   NormalizedRenderTarget::Window(
+                WindowRef::Primary.normalize(Some(window_entity)).unwrap(),
+            ),
+            position: center,
+        }),
+    ));
+}
+
+use bevy::picking::pointer::PointerLocation;
+
+fn update_pointer(
+    mut pointer: Single<&mut PointerLocation, With<EggPointer>>,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
+) {
+    if let Some(location) = pointer.location.as_mut() {
+        location.position = primary_window.size() / 2.0;
+    }
+}
 
 fn setup_player(mut commands: Commands) {
     use bevy::core_pipeline::{bloom::Bloom, tonemapping::Tonemapping};
