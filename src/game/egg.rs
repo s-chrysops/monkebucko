@@ -1,15 +1,6 @@
 use std::f32::consts::*;
 
-use bevy::{
-    animation::*,
-    asset::RenderAssetUsages,
-    color::palettes::css::*,
-    core_pipeline::{bloom::Bloom, tonemapping::Tonemapping},
-    gltf::GltfMaterialName,
-    input::mouse::AccumulatedMouseMotion,
-    prelude::*,
-    render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages},
-};
+use bevy::{animation::*, color::palettes::css::*, prelude::*};
 use bevy_rand::prelude::*;
 use rand_core::RngCore;
 
@@ -73,7 +64,10 @@ pub fn egg_plugin(app: &mut App) {
         (despawn_screen::<OnEggScene>, cursor_ungrab),
     )
     .add_systems(Update, wait_till_loaded.run_if(in_state(EggState::Loading)))
-    .add_systems(OnEnter(EggState::Ready), bind_render_target_to_panel)
+    .add_systems(
+        OnEnter(EggState::Ready),
+        (bind_render_target_to_panel, setup_interaction_observers).chain(),
+    )
     .add_systems(
         Update,
         (
@@ -130,7 +124,10 @@ fn wait_till_loaded(
 // struct Velocity(Vec3);
 
 fn setup_player(mut commands: Commands) {
+    use bevy::core_pipeline::{bloom::Bloom, tonemapping::Tonemapping};
+
     info!("Spawning player");
+
     commands.spawn((
         OnEggScene,
         Player,
@@ -186,29 +183,26 @@ fn setup_world(
     commands.spawn((OnEggScene, SceneRoot(scene_room)));
 
     // Window Glass
-    commands
-        .spawn((
-            OnEggScene,
-            Mesh3d(meshes.add(Cuboid::new(2.02, 1.202, 0.03))),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: Color::WHITE,
-                specular_transmission: 0.95,
-                diffuse_transmission: 1.0,
-                thickness: 0.03,
-                ior: 1.49,
-                perceptual_roughness: 0.0,
-                reflectance: 0.5,
-                ..default()
-            })),
-            Transform::from_xyz(0.3, 1.4, 1.525),
-            PICKABLE,
-            EntityInteraction::Text(
-                "Through eons of void, these photons birth from fusion, lay to rest in you."
-                    .to_string(),
-            ),
-        ))
-        .observe(over_interactables)
-        .observe(out_interactables);
+    commands.spawn((
+        OnEggScene,
+        Mesh3d(meshes.add(Cuboid::new(2.02, 1.202, 0.03))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::WHITE,
+            specular_transmission: 0.95,
+            diffuse_transmission: 1.0,
+            thickness: 0.03,
+            ior: 1.49,
+            perceptual_roughness: 0.0,
+            reflectance: 0.5,
+            ..default()
+        })),
+        Transform::from_xyz(0.3, 1.4, 1.525),
+        PICKABLE,
+        EntityInteraction::Text(
+            "Through eons of void, these photons birth from fusion, lay to rest in you."
+                .to_string(),
+        ),
+    ));
 
     // Star light
     commands.spawn((
@@ -246,24 +240,20 @@ fn setup_world(
 
     // Crack
     let crack_entity = commands.spawn_empty().id();
-    commands
-        .entity(crack_entity)
-        .insert((
-            OnEggScene,
-            Crack,
-            Health(CRACK_HEALTH),
-            Transform::from_xyz(1.49, 1.0, 0.5).with_rotation(Quat::from_rotation_y(-FRAC_PI_2)),
-            Mesh3d(meshes.add(Rectangle::new(1.0, 1.0))),
-            MeshMaterial3d(crack_materials[0].clone_weak()),
-            crack_materials,
-            PICKABLE,
-            EntityInteraction::Special(crack_entity),
-            SpecialInteraction::new(move |commands: &mut Commands, _entity: Entity| {
-                commands.set_state(EggState::Cracking);
-            }),
-        ))
-        .observe(over_interactables)
-        .observe(out_interactables);
+    commands.entity(crack_entity).insert((
+        OnEggScene,
+        Crack,
+        Health(CRACK_HEALTH),
+        Transform::from_xyz(1.49, 1.0, 0.5).with_rotation(Quat::from_rotation_y(-FRAC_PI_2)),
+        Mesh3d(meshes.add(Rectangle::new(1.0, 1.0))),
+        MeshMaterial3d(crack_materials[0].clone_weak()),
+        crack_materials,
+        PICKABLE,
+        EntityInteraction::Special(crack_entity),
+        SpecialInteraction::new(move |commands: &mut Commands, _entity: Entity| {
+            commands.set_state(EggState::Cracking);
+        }),
+    ));
 
     commands.spawn((
         OnEggScene,
@@ -276,9 +266,6 @@ fn setup_world(
     ));
 }
 
-#[derive(Debug, Resource)]
-struct CrtRenderTarget(Handle<Image>);
-
 #[derive(Debug, Component)]
 struct CrtSprite;
 
@@ -287,6 +274,9 @@ fn setup_crt(
     mut asset_tracker: ResMut<AssetTracker>,
     asset_server: Res<AssetServer>,
 ) {
+    use bevy::asset::RenderAssetUsages;
+    use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
+
     // This is the texture that will be rendered to.
     let mut image = Image::new_fill(
         Extent3d {
@@ -312,7 +302,7 @@ fn setup_crt(
         Camera2d,
         Camera {
             order: 2,
-            target: RenderTarget::Image(image_handle.clone().into()),
+            target: RenderTarget::Image(image_handle.into()),
             clear_color: ClearColorConfig::Custom(Color::BLACK),
             ..default()
         },
@@ -342,30 +332,52 @@ fn setup_crt(
         Visibility::default(),
         RENDER_LAYER_SPECIAL,
     ));
-
-    commands.insert_resource(CrtRenderTarget(image_handle));
 }
 
+use bevy::gltf::GltfMaterialName;
+
 fn bind_render_target_to_panel(
-    q_gltf_materials: Query<(&GltfMaterialName, &MeshMaterial3d<StandardMaterial>)>,
+    q_gltf_materials: Query<(Entity, &GltfMaterialName, &MeshMaterial3d<StandardMaterial>)>,
+    special_camera: Single<&Camera, With<SpecialCamera>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    render_target: Res<CrtRenderTarget>,
     mut commands: Commands,
 ) {
-    if let Some(material_handle) = q_gltf_materials
+    if let Some((entity, material_handle)) = q_gltf_materials
         .iter()
-        .find_map(|(name, handle)| (name.0 == "CRT_Panel").then_some(handle))
+        .find_map(|(entity, name, handle)| (name.0 == "CRT_Panel").then_some((entity, handle)))
     {
         if let Some(material) = materials.get_mut(&material_handle.0) {
-            material.base_color_texture = Some(render_target.0.clone());
-            commands.remove_resource::<CrtRenderTarget>();
-            info!("CRT Panel Texture set to Special Camera render target");
+            if let Some(render_image) = special_camera.target.as_image() {
+                material.base_color_texture = Some(render_image.clone());
+                info!("CRT Panel Texture set to Special Camera render target");
+            }
         }
+        commands
+            .entity(entity)
+            .insert((PICKABLE, EntityInteraction::Text("amogus".to_string())));
     }
+}
+
+fn setup_interaction_observers(
+    q_interactables: Query<Entity, With<EntityInteraction>>,
+    mut commands: Commands,
+) {
+    let mut observer_over = Observer::new(over_interactables);
+    let mut observer_out = Observer::new(out_interactables);
+
+    q_interactables.iter().for_each(|entity| {
+        observer_over.watch_entity(entity);
+        observer_out.watch_entity(entity);
+    });
+
+    commands.spawn(observer_over);
+    commands.spawn(observer_out);
 }
 
 const ROOM_BOUNDARY: Vec3 = Vec3::splat(1.3);
 const PLAYER_STEP: f32 = 0.04;
+
+use bevy::input::mouse::AccumulatedMouseMotion;
 
 fn move_player(
     accumulated_mouse_motion: Res<AccumulatedMouseMotion>,
@@ -1365,12 +1377,17 @@ fn update_crack(
 }
 
 fn over_interactables(
-    over: Trigger<Pointer<Over>>,
+    trigger: Trigger<Pointer<Over>>,
     q_interactables: Query<Entity, With<EntityInteraction>>,
     mut interaction_target: Single<&mut InteractTarget, With<Player>>,
 ) {
+    if trigger.pointer_id.is_mouse() {
+        // Disregard mouse inputs
+        return;
+    }
+
     // info!("Hovering");
-    if let Ok(target_entity) = q_interactables.get(over.target()) {
+    if let Ok(target_entity) = q_interactables.get(trigger.target()) {
         // info!("Over Target: {}", target_entity);
         interaction_target.set(target_entity);
     }
@@ -1379,12 +1396,17 @@ fn over_interactables(
 }
 
 fn out_interactables(
-    out: Trigger<Pointer<Out>>,
+    trigger: Trigger<Pointer<Out>>,
     q_interactables: Query<Entity, With<EntityInteraction>>,
     mut interaction_target: Single<&mut InteractTarget, With<Player>>,
 ) {
+    if trigger.pointer_id.is_mouse() {
+        // Disregard mouse inputs
+        return;
+    }
+
     // info!("Not Hovering");
-    if let Ok(_target_entity) = q_interactables.get(out.target()) {
+    if let Ok(_target_entity) = q_interactables.get(trigger.target()) {
         // info!("Out Target: {}", target_entity);
         interaction_target.clear();
     }
@@ -1392,7 +1414,7 @@ fn out_interactables(
 
 fn get_egg_interactions(
     player: Single<(&InteractTarget, &Transform), With<Player>>,
-    q_interactables: Query<(&EntityInteraction, &Transform)>,
+    q_interactables: Query<(&EntityInteraction, &GlobalTransform)>,
 ) -> Option<EntityInteraction> {
     const INTERACTION_RANGE: f32 = 1.0;
 
@@ -1403,7 +1425,7 @@ fn get_egg_interactions(
 
     let player_in_range = player_transform
         .translation
-        .distance(target_transform.translation)
+        .distance(target_transform.translation())
         < INTERACTION_RANGE;
 
     player_in_range.then_some(entity_interaction.clone())
