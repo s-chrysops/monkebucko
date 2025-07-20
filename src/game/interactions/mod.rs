@@ -55,6 +55,10 @@ impl InteractTarget {
     pub fn clear(&mut self) {
         self.0 = None;
     }
+
+    pub fn get(&self) -> Option<&Entity> {
+        self.as_ref()
+    }
 }
 
 #[derive(Debug, Clone, Component, Reflect, Serialize, Deserialize)]

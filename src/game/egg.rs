@@ -1445,8 +1445,6 @@ fn over_interactables(
         // info!("Over Target: {}", target_entity);
         interaction_target.set(target_entity);
     }
-    // let depth = over.event().event.hit.depth;
-    // info!(depth);
 }
 
 fn out_interactables(
@@ -1466,21 +1464,29 @@ fn out_interactables(
     }
 }
 
+use bevy::picking::backend::PointerHits;
+use bevy::picking::pointer::PointerId;
 fn get_egg_interactions(
-    player: Single<(&InteractTarget, &Transform), With<Player>>,
-    q_interactables: Query<(&EntityInteraction, &GlobalTransform)>,
+    interact_target: Single<&InteractTarget, With<Player>>,
+    mut pointer_hits: EventReader<PointerHits>,
+    egg_pointer_id: Single<&PointerId, With<EggPointer>>,
+    q_interactables: Query<&EntityInteraction>,
 ) -> Option<EntityInteraction> {
     const INTERACTION_RANGE: f32 = 1.0;
 
-    let (interact_target, player_transform) = player.into_inner();
-    let target_entity = interact_target.as_ref()?;
+    let target_entity = interact_target.get()?;
 
-    let (entity_interaction, target_transform) = q_interactables.get_inner(*target_entity).ok()?;
+    let current_frame_hit = pointer_hits
+        .read()
+        .filter(|hit| &hit.pointer == *egg_pointer_id && hit.order == 0.0)
+        .last()?;
 
-    let player_in_range = player_transform
-        .translation
-        .distance(target_transform.translation())
-        < INTERACTION_RANGE;
+    let hitdata = current_frame_hit
+        .picks
+        .iter()
+        .find_map(|(entity, hitdata)| (entity == target_entity).then_some(hitdata))?;
 
-    player_in_range.then_some(entity_interaction.clone())
+    let target_in_range = hitdata.depth < INTERACTION_RANGE;
+
+    target_in_range.then(|| q_interactables.get(*target_entity).ok().cloned())?
 }
