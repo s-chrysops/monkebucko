@@ -1,12 +1,11 @@
 [package]
 name = "monkebucko"
-version = "0.6.0"
+version = "0.6.7"
 edition = "2024"
 authors = ["Scup st.chrysops@gmail.com"]
 
-
 [dependencies]
-bevy = {version = "0.16.1", features = ["serialize", "bevy_dev_tools", "pbr_transmission_textures"]}
+bevy = {version = "0.16.1", features = ["serialize", "pbr_transmission_textures"]}
 
 bevy-persistent = { version = "0.8.0", features = ["toml", "ron"] }
 dirs = "5.0.1"
@@ -21,14 +20,28 @@ bevy_ecs_tilemap = "0.16"
 
 nohash-hasher = "0.2.0"
 
-bevy-inspector-egui = "0.31"
-
-[target.'cfg(all(target_family = "wasm", any(target_os = "unknown", target_os = "none")))'.dependencies]
 rand_core = "0.9.3"
-bevy_rand = { version = "0.11", features = ["wyrand", "wasm_js"] }
+bevy_rand = { version = "0.11", features = ["wyrand"] }
+
+bevy-inspector-egui = { version = "0.31", optional = true }
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
 
 [profile.wasm-release]
 inherits = "release"
 opt-level = "z"
 lto = "fat"
 codegen-units = 1
+strip = "debuginfo"
+
+[features]
+debug-physics = []
+debug-pickings = ["bevy/bevy_dev_tools"]
+export-types = []
+inspector = ["dep:bevy-inspector-egui"]
+web = ["bevy/web", "bevy_rand/wasm_js"]
+win = ["bevy/dynamic_linking"]

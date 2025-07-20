@@ -1,5 +1,11 @@
-[build]
-target = "wasm32-unknown-unknown"
+[alias]
+build-web = "build --target wasm32-unknown-unknown --features web --profile wasm-release"
+run-web = "run --target wasm32-unknown-unknown --features web"
+run-win = "run --features win"
+
 [target.wasm32-unknown-unknown]
 rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
 runner = "wasm-server-runner"
+
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld.exe"
