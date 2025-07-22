@@ -43,6 +43,10 @@ pub fn save_progress_to_disk(
         .expect("Failed to save");
 }
 
+pub fn has_progress_flag(flag: ProgressFlag) -> impl FnMut(Res<Progress>) -> bool + Clone {
+    move |progress: Res<Progress>| progress.contains(&flag)
+}
+
 #[derive(Debug, Clone, Copy, Component, Resource, Reflect)]
 #[reflect(Component, Resource)]
 pub enum SaveSlot {

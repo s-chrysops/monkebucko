@@ -1,7 +1,9 @@
 use bevy::prelude::*;
 
 #[derive(Clone, Copy, Debug, Event, Deref, PartialEq)]
-pub struct SpriteAnimationFinished(pub Entity);
+pub struct SpriteAnimationFinished {
+    pub entity: Entity,
+}
 
 #[derive(Debug, Component, Reflect)]
 #[reflect(Component)]
@@ -122,7 +124,7 @@ fn play_animations(
                         atlas.index = animation.first_index;
                         animation.frame_timer.reset();
                     }
-                    let event = SpriteAnimationFinished(entity);
+                    let event = SpriteAnimationFinished { entity };
                     e_writer.write(event);
                     commands.trigger_targets(event, entity);
                 } else if atlas.index < animation.last_index {

@@ -92,7 +92,7 @@ impl SpecialInteraction {
 
 pub fn play_interactions(
     In(input): In<Option<EntityInteraction>>,
-    special_interactions: Query<&SpecialInteraction, With<EntityInteraction>>,
+    special_interactions: Query<&SpecialInteraction>,
     mut monologue_server: ResMut<MonologueServer>,
     mut commands: Commands,
 ) {
@@ -131,10 +131,11 @@ pub fn play_interactions(
                 .with_child(interaction_text(""));
         }
         EntityInteraction::Special(entity) => {
-            special_interactions
-                .get(entity)
-                .expect("Entity should have SpecialInteraction component")
-                .0(&mut commands, entity);
+            let Ok(SpecialInteraction(func)) = special_interactions.get(entity) else {
+                warn!("Entity {} has no SpecialInteraction", entity);
+                return;
+            };
+            func(&mut commands, entity);
         }
     }
 }

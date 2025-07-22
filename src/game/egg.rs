@@ -10,6 +10,7 @@ use crate::{
     auto_scaling::AspectRatio,
     despawn_screen,
     game::interactions::*,
+    progress::{Progress, ProgressFlag, has_progress_flag},
 };
 
 use super::*;
@@ -55,8 +56,8 @@ pub fn egg_plugin(app: &mut App) {
             setup_player,
             setup_world,
             setup_stars,
+            setup_cracking_animations,
             setup_cracking_elements,
-            setup_crt,
             cursor_grab,
         ),
     )
@@ -72,8 +73,8 @@ pub fn egg_plugin(app: &mut App) {
     .add_systems(
         OnEnter(EggState::Ready),
         (
-            bind_render_target_to_panel,
-            setup_interaction_observers,
+            initialize_crt_panel,
+            initialize_interaction_observers,
             enable_movement,
         )
             .chain(),
@@ -83,6 +84,7 @@ pub fn egg_plugin(app: &mut App) {
         (
             update_stars_position,
             despawn_respawn_stars,
+            reveal_crack,
             (
                 move_player,
                 get_egg_interactions
@@ -93,13 +95,17 @@ pub fn egg_plugin(app: &mut App) {
         )
             .run_if(in_state(EggState::Ready)),
     )
-    .add_systems(OnEnter(EggState::Cracking), setup_ease_and_play)
+    .add_systems(
+        OnEnter(EggState::Cracking),
+        (setup_ease_and_play, disable_movement),
+    )
     .add_systems(
         Update,
         (
             advance_crack_phase.run_if(not(pressing_interact).and(just_pressed_swap)),
-            exit_egg.run_if(just_pressed_jump),
-            update_crack,
+            update_crack.run_if(pressing_interact),
+            play_egg_exit.run_if(just_pressed_jump.and(has_progress_flag(ProgressFlag::CrackOpen))),
+            (cracking_animations_out, enable_movement, escape_cracking).run_if(just_pressed_escape),
         )
             .run_if(in_state(EggState::Cracking)),
     )
@@ -113,6 +119,17 @@ pub fn egg_plugin(app: &mut App) {
             violence.run_if(in_state(CrackingPhase::Violence)),
             exit_wait_for_fade.run_if(in_state(CrackingPhase::Fading)),
         ),
+    )
+    .add_systems(
+        OnExit(CrackingPhase::Easing),
+        (
+            play_egg_exit.run_if(has_progress_flag(ProgressFlag::CrackOpen)),
+            punch_in.run_if(not(has_progress_flag(ProgressFlag::CrackOpen))),
+        ),
+    )
+    .add_systems(
+        OnEnter(CrackingPhase::Fading),
+        (effects::fade_to_white, cracking_animations_out),
     )
     .add_sub_state::<EggState>()
     .add_sub_state::<CrackingPhase>();
@@ -203,8 +220,8 @@ fn setup_player(mut commands: Commands) {
                 clear_color: ClearColorConfig::Custom(Color::BLACK),
                 ..default()
             },
-            Tonemapping::TonyMcMapface,
-            Bloom::NATURAL,
+            Tonemapping::ReinhardLuminance,
+            Bloom::OLD_SCHOOL,
             Projection::from(PerspectiveProjection {
                 fov: 70.0_f32.to_radians(),
                 ..default()
@@ -214,17 +231,6 @@ fn setup_player(mut commands: Commands) {
         )],
     ));
 }
-
-#[derive(Debug, Component)]
-struct Crack;
-
-#[derive(Debug, Deref, DerefMut, Component)]
-struct Health(u8);
-
-const CRACK_HEALTH: u8 = 200;
-
-#[derive(Debug, Deref, Component)]
-struct CrackMaterials([Handle<StandardMaterial>; 6]);
 
 fn setup_world(
     mut commands: Commands,
@@ -273,45 +279,6 @@ fn setup_world(
         Transform::from_xyz(0.0, 1.4, 4.0),
     ));
 
-    const CRACK_PATHS: [&str; 6] = [
-        "sprites/crack/crack1.png",
-        "sprites/crack/crack2.png",
-        "sprites/crack/crack3.png",
-        "sprites/crack/crack4.png",
-        "sprites/crack/crack5.png",
-        "sprites/crack/crack6.png",
-    ];
-
-    let crack_materials = CrackMaterials(CRACK_PATHS.map(|path| {
-        let image = asset_server.load(path);
-        asset_tracker.push(image.clone_weak().untyped());
-        materials.add(StandardMaterial {
-            base_color_texture: Some(image),
-            perceptual_roughness: 1.0,
-            alpha_mode: AlphaMode::Mask(0.5),
-            cull_mode: None,
-            emissive: LinearRgba::rgb(150.0, 150.0, 150.0),
-            ..default()
-        })
-    }));
-
-    // Crack
-    let crack_entity = commands.spawn_empty().id();
-    commands.entity(crack_entity).insert((
-        OnEggScene,
-        Crack,
-        Health(CRACK_HEALTH),
-        Transform::from_xyz(1.49, 1.0, 0.5).with_rotation(Quat::from_rotation_y(-FRAC_PI_2)),
-        Mesh3d(meshes.add(Rectangle::new(1.0, 1.0))),
-        MeshMaterial3d(crack_materials[0].clone_weak()),
-        crack_materials,
-        PICKABLE,
-        EntityInteraction::Special(crack_entity),
-        SpecialInteraction::new(move |commands: &mut Commands, _entity: Entity| {
-            commands.set_state(EggState::Cracking);
-        }),
-    ));
-
     commands.spawn((
         OnEggScene,
         PointLight {
@@ -324,17 +291,42 @@ fn setup_world(
 }
 
 #[derive(Debug, Component)]
-struct CrtSprite;
+struct Crack;
 
-fn setup_crt(
+#[derive(Debug, Deref, DerefMut, Component)]
+struct CrackHealth(u8);
+
+impl CrackHealth {
+    fn damage_level(&self) -> usize {
+        match self.0 {
+            255 => 0,
+            192..255 => 1,
+            128..192 => 2,
+            64..128 => 3,
+            1..64 => 4,
+            0 => 5,
+        }
+    }
+}
+
+#[derive(Debug, Deref, DerefMut, Component)]
+struct CrackingTimer(Timer);
+
+#[derive(Debug, Deref, Component)]
+struct CrackMaterials([Handle<StandardMaterial>; 6]);
+
+#[derive(Debug, Component)]
+struct CrackingRoot;
+
+fn setup_cracking_elements(
     mut commands: Commands,
     mut asset_tracker: ResMut<AssetTracker>,
     asset_server: Res<AssetServer>,
+    progress: Res<Progress>,
 ) {
     use bevy::asset::RenderAssetUsages;
     use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 
-    // This is the texture that will be rendered to.
     let mut image = Image::new_fill(
         Extent3d {
             width: 128,
@@ -346,13 +338,12 @@ fn setup_crt(
         TextureFormat::Bgra8UnormSrgb,
         RenderAssetUsages::default(),
     );
-
     image.texture_descriptor.usage =
         TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
-
     let image_handle = asset_server.add(image);
 
     use bevy::render::camera::{RenderTarget, ScalingMode};
+
     commands.spawn((
         OnEggScene,
         SpecialCamera,
@@ -375,25 +366,92 @@ fn setup_crt(
         RENDER_LAYER_SPECIAL,
     ));
 
+    let cracking_root = commands
+        .spawn((
+            OnEggScene,
+            CrackingRoot,
+            Name::new("Cracking Root"),
+            Transform::default(),
+            Visibility::Hidden,
+            SpecialInteraction::new(move |commands: &mut Commands, _entity: Entity| {
+                commands.set_state(EggState::Cracking);
+            }),
+        ))
+        .id();
+
     let ami_intro = asset_server.load("sprites/ami_intro.png");
     asset_tracker.push(ami_intro.clone_weak().untyped());
     let ami_layout = TextureAtlasLayout::from_grid(uvec2(128, 96), 10, 6, None, None);
     let ami_layout = asset_server.add(ami_layout);
 
     commands.spawn((
-        OnEggScene,
-        CrtSprite,
+        ChildOf(cracking_root),
+        Name::new("CRT_Sprite"),
         Sprite::from_atlas_image(ami_intro, ami_layout.into()),
-        SpriteAnimation::set_frame(59),
+        SpriteAnimation::new(0, 58, 12).looping(),
         Transform::default(),
         Visibility::default(),
         RENDER_LAYER_SPECIAL,
     ));
+
+    let crack_materials = CrackMaterials(
+        [
+            "sprites/crack/crack1.png",
+            "sprites/crack/crack2.png",
+            "sprites/crack/crack3.png",
+            "sprites/crack/crack4.png",
+            "sprites/crack/crack5.png",
+            "sprites/crack/crack6.png",
+        ]
+        .map(|path| {
+            let image = asset_server.load(path);
+            asset_tracker.push(image.clone_weak().untyped());
+            asset_server.add(StandardMaterial {
+                base_color_texture: Some(image),
+                perceptual_roughness: 1.0,
+                alpha_mode: AlphaMode::Mask(0.5),
+                cull_mode: None,
+                emissive: LinearRgba::rgb(150.0, 150.0, 150.0),
+                ..default()
+            })
+        }),
+    );
+
+    let (health, Some(material), reveal_time) = (match progress.contains(&ProgressFlag::CrackOpen) {
+        true => (0, crack_materials.last(), 2.0),
+        false => (200, crack_materials.first(), 32.0),
+    }) else {
+        unreachable!()
+    };
+
+    // Crack
+    commands.spawn((
+        ChildOf(cracking_root),
+        Crack,
+        Name::new("Crack"),
+        CrackHealth(health),
+        Transform::from_xyz(1.49, 1.0, 0.5).with_rotation(Quat::from_rotation_y(-FRAC_PI_2)),
+        Visibility::default(),
+        Mesh3d(asset_server.add(Rectangle::new(1.0, 1.0).into())),
+        MeshMaterial3d(material.clone_weak()),
+        crack_materials,
+        PICKABLE,
+        EntityInteraction::Special(cracking_root),
+    ));
+
+    commands
+        .entity(cracking_root)
+        .insert(CrackingTimer(Timer::from_seconds(
+            reveal_time,
+            TimerMode::Once,
+        )));
 }
 
-use bevy::gltf::GltfMaterialName;
+#[derive(Debug, Component)]
+struct CrtPanel;
 
-fn bind_render_target_to_panel(
+use bevy::gltf::GltfMaterialName;
+fn initialize_crt_panel(
     q_gltf_materials: Query<(Entity, &GltfMaterialName, &MeshMaterial3d<StandardMaterial>)>,
     special_camera: Single<&Camera, With<SpecialCamera>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -405,17 +463,20 @@ fn bind_render_target_to_panel(
     {
         if let Some(material) = materials.get_mut(&material_handle.0) {
             if let Some(render_image) = special_camera.target.as_image() {
-                material.base_color_texture = Some(render_image.clone());
+                material.base_color = BLACK.into();
+                material.emissive_texture = Some(render_image.clone());
                 info!("CRT Panel Texture set to Special Camera render target");
             }
         }
-        commands
-            .entity(entity)
-            .insert((PICKABLE, EntityInteraction::Text("amogus".to_string())));
+        commands.entity(entity).insert((
+            CrtPanel,
+            PICKABLE,
+            EntityInteraction::Text("amogus".to_string()),
+        ));
     }
 }
 
-fn setup_interaction_observers(
+fn initialize_interaction_observers(
     q_interactables: Query<Entity, With<EntityInteraction>>,
     mut commands: Commands,
 ) {
@@ -429,6 +490,23 @@ fn setup_interaction_observers(
 
     commands.spawn(observer_over);
     commands.spawn(observer_out);
+}
+
+fn reveal_crack(
+    crack: Single<(&mut CrackingTimer, &mut Visibility), With<CrackingRoot>>,
+    time: Res<Time>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    crt_panel: Single<&MeshMaterial3d<StandardMaterial>, With<CrtPanel>>,
+) {
+    let (mut timer, mut visibility) = crack.into_inner();
+    if timer.tick(time.delta()).just_finished() {
+        info!("REVEAL");
+        *visibility = Visibility::Visible;
+        if let Some(material) = materials.get_mut(&crt_panel.0) {
+            material.base_color = WHITE.into();
+            material.emissive = LinearRgba::rgb(16.0, 16.0, 16.0);
+        }
+    }
 }
 
 const ROOM_BOUNDARY: Vec3 = Vec3::splat(1.3);
@@ -480,21 +558,21 @@ fn move_player(
 }
 
 #[derive(Debug, PartialEq)]
-enum CrackingElementId {
+enum CrackingAnimationId {
     PunchLower,
     PunchUpper,
     Guns,
 }
 
 #[derive(Debug, Component)]
-struct CrackingElementInfo {
-    id:       CrackingElementId,
+struct CrackingAnimationInfo {
+    id:       CrackingAnimationId,
     parts:    Vec<Entity>,
     in_node:  AnimationNodeIndex,
     out_node: AnimationNodeIndex,
 }
 
-fn setup_cracking_elements(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup_cracking_animations(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Default animation duration: 1.0 second
     // const MEDIUM_DURATION: f32 = 0.5;
     const FAST_DURATION: f32 = 0.125;
@@ -580,8 +658,8 @@ fn setup_cracking_elements(mut commands: Commands, asset_server: Res<AssetServer
             .spawn((
                 OnEggScene,
                 punch_lower_name,
-                CrackingElementInfo {
-                    id:       CrackingElementId::PunchLower,
+                CrackingAnimationInfo {
+                    id:       CrackingAnimationId::PunchLower,
                     parts:    punch_lower_parts.to_vec(),
                     in_node:  punch_lower_nodes[0],
                     out_node: punch_lower_nodes[1],
@@ -714,8 +792,8 @@ fn setup_cracking_elements(mut commands: Commands, asset_server: Res<AssetServer
             .entity(punch_upper)
             .add_children(&punch_upper_parts)
             .insert((
-                CrackingElementInfo {
-                    id:       CrackingElementId::PunchUpper,
+                CrackingAnimationInfo {
+                    id:       CrackingAnimationId::PunchUpper,
                     parts:    punch_upper_parts.to_vec(),
                     in_node:  punch_upper_nodes[0],
                     out_node: punch_upper_nodes[1],
@@ -735,7 +813,7 @@ fn setup_cracking_elements(mut commands: Commands, asset_server: Res<AssetServer
             ))
             .id();
 
-        struct PreElement {
+        struct PreAnimation {
             name: &'static str,
 
             path:        &'static str,
@@ -750,8 +828,8 @@ fn setup_cracking_elements(mut commands: Commands, asset_server: Res<AssetServer
 
         const PADDING: UVec2 = UVec2::splat(16);
 
-        let pre_elements = [
-            PreElement {
+        let pre_animations = [
+            PreAnimation {
                 name:            "machgun",
                 path:            "sprites/machgun.png",
                 layout:          TextureAtlasLayout::from_grid(
@@ -767,7 +845,7 @@ fn setup_cracking_elements(mut commands: Commands, asset_server: Res<AssetServer
                 translation_in:  vec3(-270.0, -228.0, Z_SPRITES + 0.2),
                 translation_out: vec3(-270.0, -374.0, Z_SPRITES + 0.2),
             },
-            PreElement {
+            PreAnimation {
                 name:            "shotgun",
                 path:            "sprites/shotgun.png",
                 layout:          TextureAtlasLayout::from_grid(
@@ -783,7 +861,7 @@ fn setup_cracking_elements(mut commands: Commands, asset_server: Res<AssetServer
                 translation_in:  vec3(500.0, -206.0, Z_SPRITES + 0.2),
                 translation_out: vec3(500.0, -414.0, Z_SPRITES + 0.2),
             },
-            PreElement {
+            PreAnimation {
                 name:            "pistol1",
                 path:            "sprites/pistol1.png",
                 layout:          TextureAtlasLayout::from_grid(
@@ -799,7 +877,7 @@ fn setup_cracking_elements(mut commands: Commands, asset_server: Res<AssetServer
                 translation_in:  vec3(488.0, 152.0, Z_SPRITES + 0.2),
                 translation_out: vec3(684.0, 152.0, Z_SPRITES + 0.2),
             },
-            PreElement {
+            PreAnimation {
                 name:            "pistol2",
                 path:            "sprites/pistol2.png",
                 layout:          TextureAtlasLayout::from_grid(
@@ -817,17 +895,17 @@ fn setup_cracking_elements(mut commands: Commands, asset_server: Res<AssetServer
             },
         ];
 
-        let (elements, in_out_curves): (
+        let (gun_animation_entities, in_out_curves): (
             Vec<Entity>,
             Vec<(
                 AnimationTargetId,
                 AnimatableCurve<_, _>,
                 AnimatableCurve<_, _>,
             )>,
-        ) = pre_elements
+        ) = pre_animations
             .into_iter()
-            .map(|pre_element| {
-                let PreElement {
+            .map(|pre_animation| {
+                let PreAnimation {
                     name,
                     path,
                     layout,
@@ -836,12 +914,12 @@ fn setup_cracking_elements(mut commands: Commands, asset_server: Res<AssetServer
                     rotation,
                     translation_in,
                     translation_out,
-                } = pre_element;
+                } = pre_animation;
 
                 let name = Name::new(name);
                 let target_id = AnimationTargetId::from_name(&name);
 
-                let element_entity = commands
+                let animation_entity = commands
                     .spawn((
                         Sprite {
                             image: asset_server.load(path),
@@ -881,7 +959,7 @@ fn setup_cracking_elements(mut commands: Commands, asset_server: Res<AssetServer
                     ),
                 );
 
-                (element_entity, in_out_curves)
+                (animation_entity, in_out_curves)
             })
             .unzip();
 
@@ -905,15 +983,18 @@ fn setup_cracking_elements(mut commands: Commands, asset_server: Res<AssetServer
             AnimationGraph::from_clips(guns_clips.map(|clip| asset_server.add(clip)));
         let guns_graph_handle = asset_server.add(guns_graph);
 
-        commands.entity(guns).add_children(&elements).insert((
-            CrackingElementInfo {
-                id:       CrackingElementId::Guns,
-                parts:    elements,
-                in_node:  guns_nodes[0],
-                out_node: guns_nodes[1],
-            },
-            AnimationGraphHandle(guns_graph_handle),
-        ));
+        commands
+            .entity(guns)
+            .add_children(&gun_animation_entities)
+            .insert((
+                CrackingAnimationInfo {
+                    id:       CrackingAnimationId::Guns,
+                    parts:    gun_animation_entities,
+                    in_node:  guns_nodes[0],
+                    out_node: guns_nodes[1],
+                },
+                AnimationGraphHandle(guns_graph_handle),
+            ));
     }
 }
 
@@ -1140,9 +1221,6 @@ fn setup_ease_and_play(
                     .unwrap(),
                 ),
             );
-            ease_into_crack_clip.add_event_fn(0.0, |commands, _entity, _time, _weight| {
-                commands.run_system_cached(effects::fade_to_white);
-            });
             ease_into_crack_clip
         }),
     ]);
@@ -1164,33 +1242,35 @@ fn setup_ease_and_play(
 
 fn wait_for_ease(
     player_animation: Single<&AnimationPlayer, With<Player>>,
-    mut q_elements: Query<(&CrackingElementInfo, &mut AnimationPlayer), Without<Player>>,
     mut crack_phase: ResMut<NextState<CrackingPhase>>,
 ) {
     if player_animation.all_finished() {
-        if let Some((info, mut animator)) = q_elements
-            .iter_mut()
-            .find(|(info, _animator)| matches!(info.id, CrackingElementId::PunchLower))
-        {
-            animator.play(info.in_node);
-            crack_phase.set(CrackingPhase::Punch);
-        }
+        crack_phase.set(CrackingPhase::Punch);
+    }
+}
+
+fn punch_in(mut q_elements: Query<(&CrackingAnimationInfo, &mut AnimationPlayer)>) {
+    if let Some((info, mut animator)) = q_elements
+        .iter_mut()
+        .find(|(info, _animator)| matches!(info.id, CrackingAnimationId::PunchLower))
+    {
+        animator.stop_all().play(info.in_node);
     }
 }
 
 fn advance_crack_phase(
     crack_phase: Res<State<CrackingPhase>>,
     mut next_crack_phase: ResMut<NextState<CrackingPhase>>,
-    mut q_elements: Query<(&CrackingElementInfo, &mut AnimationPlayer), Without<Player>>,
+    mut q_elements: Query<(&CrackingAnimationInfo, &mut AnimationPlayer), Without<Player>>,
 ) {
     match crack_phase.get() {
         CrackingPhase::Punch => next_crack_phase.set(CrackingPhase::FastPunch),
         CrackingPhase::FastPunch => {
             if let Some((info, mut animator)) = q_elements
                 .iter_mut()
-                .find(|(info, _animator)| matches!(info.id, CrackingElementId::PunchUpper))
+                .find(|(info, _animator)| matches!(info.id, CrackingAnimationId::PunchUpper))
             {
-                animator.play(info.in_node);
+                animator.stop_all().play(info.in_node);
             }
             next_crack_phase.set(CrackingPhase::QuadPunch)
         }
@@ -1201,13 +1281,13 @@ fn advance_crack_phase(
 
 fn punch(
     user_input: Res<UserInput>,
-    q_elements: Query<&CrackingElementInfo, Without<Player>>,
+    q_elements: Query<&CrackingAnimationInfo, Without<Player>>,
     mut q_sprite_animations: Query<&mut SpriteAnimation>,
     mut right_left: Local<bool>,
 ) {
     if let Some(info) = q_elements
         .iter()
-        .find(|info| matches!(info.id, CrackingElementId::PunchLower))
+        .find(|info| matches!(info.id, CrackingAnimationId::PunchLower))
     {
         let current_fist = info.parts[*right_left as usize];
         if let Ok(mut animation) = q_sprite_animations.get_mut(current_fist) {
@@ -1225,7 +1305,7 @@ fn punch(
 
 fn fast_punch(
     user_input: Res<UserInput>,
-    q_elements: Query<&CrackingElementInfo, Without<Player>>,
+    q_elements: Query<&CrackingAnimationInfo, Without<Player>>,
     mut q_sprite_animations: Query<&mut SpriteAnimation>,
     mut right_left: Local<bool>,
 ) {
@@ -1233,7 +1313,7 @@ fn fast_punch(
 
     if let Some(info) = q_elements
         .iter()
-        .find(|info| info.id == CrackingElementId::PunchLower)
+        .find(|info| info.id == CrackingAnimationId::PunchLower)
     {
         info.parts.iter().zip(FLIP).for_each(|(&entity, flip)| {
             if let Ok(mut animation) = q_sprite_animations.get_mut(entity) {
@@ -1260,7 +1340,7 @@ fn fast_punch(
 
 fn quad_punch(
     user_input: Res<UserInput>,
-    q_elements: Query<&CrackingElementInfo, Without<Player>>,
+    q_elements: Query<&CrackingAnimationInfo, Without<Player>>,
     mut q_sprite_animations: Query<&mut SpriteAnimation>,
 ) {
     q_elements
@@ -1268,7 +1348,7 @@ fn quad_punch(
         .filter_map(|info| {
             matches!(
                 info.id,
-                CrackingElementId::PunchLower | CrackingElementId::PunchUpper
+                CrackingAnimationId::PunchLower | CrackingAnimationId::PunchUpper
             )
             .then_some(&info.parts)
         })
@@ -1291,7 +1371,7 @@ fn quad_punch(
 
 fn violence(
     user_input: Res<UserInput>,
-    mut q_elements: Query<(&CrackingElementInfo, &mut AnimationPlayer), Without<Player>>,
+    mut q_elements: Query<(&CrackingAnimationInfo, &mut AnimationPlayer), Without<Player>>,
     mut q_sprite_animations: Query<&mut SpriteAnimation>,
 ) {
     struct SpriteInfo {
@@ -1309,7 +1389,7 @@ fn violence(
     q_elements
         .iter_mut()
         .for_each(|(info, mut animator)| match info.id {
-            CrackingElementId::Guns => match user_input.interact {
+            CrackingAnimationId::Guns => match user_input.interact {
                 KeyState::Press => {
                     animator.stop_all().play(info.in_node);
                     info.parts.iter().zip(GUNS_SPRITE_ANIMATION_INFO).for_each(
@@ -1343,17 +1423,37 @@ fn violence(
         });
 }
 
-fn exit_egg(
-    crack_health: Single<&Health, With<Crack>>,
-    mut q_elements: Query<(&CrackingElementInfo, &mut AnimationPlayer), Without<Player>>,
-    mut q_sprite_animations: Query<&mut SpriteAnimation>,
+fn play_egg_exit(
     player: Single<(&mut AnimationPlayer, &ExitNode), With<Player>>,
     mut crack_phase: ResMut<NextState<CrackingPhase>>,
 ) {
-    if !crack_health.eq(&u8::MIN) {
-        return;
-    }
+    let (mut player_animation, ExitNode(node)) = player.into_inner();
+    player_animation.stop_all().play(*node);
 
+    crack_phase.set(CrackingPhase::Fading);
+}
+
+fn exit_wait_for_fade(
+    player_animator: Single<&AnimationPlayer, With<Player>>,
+    mut game_state: ResMut<NextState<GameState>>,
+) {
+    if player_animator.all_finished() {
+        game_state.set(GameState::TopDown);
+    }
+}
+
+fn escape_cracking(
+    mut player_animator: Single<&mut AnimationPlayer, With<Player>>,
+    mut egg_state: ResMut<NextState<EggState>>,
+) {
+    player_animator.stop_all();
+    egg_state.set(EggState::Ready);
+}
+
+fn cracking_animations_out(
+    mut q_elements: Query<(&CrackingAnimationInfo, &mut AnimationPlayer), Without<Player>>,
+    mut q_sprite_animations: Query<&mut SpriteAnimation>,
+) {
     q_elements
         .iter_mut()
         .filter(|(info, animator)| animator.is_playing_animation(info.in_node))
@@ -1365,73 +1465,61 @@ fn exit_egg(
                 }
             });
         });
-
-    let (mut player_animation, exit_node) = player.into_inner();
-    player_animation.stop_all().play(exit_node.0);
-
-    crack_phase.set(CrackingPhase::Fading);
-}
-
-fn exit_wait_for_fade(
-    player_animation: Single<&AnimationPlayer, With<Player>>,
-    mut game_state: ResMut<NextState<GameState>>,
-) {
-    if player_animation.all_finished() {
-        game_state.set(GameState::TopDown);
-    }
 }
 
 fn update_crack(
-    user_input: Res<UserInput>,
-    q_element_info: Query<&CrackingElementInfo>,
+    q_animation_info: Query<&CrackingAnimationInfo>,
     crack: Single<
         (
-            &mut Health,
+            &mut CrackHealth,
             &mut MeshMaterial3d<StandardMaterial>,
             &CrackMaterials,
         ),
         With<Crack>,
     >,
     mut e_reader: EventReader<SpriteAnimationFinished>,
-    mut elements: Local<Vec<Entity>>,
+    mut cracking_animations: Local<Vec<Entity>>,
+    mut progress: ResMut<Progress>,
 ) {
-    if !matches!(user_input.interact, KeyState::Press | KeyState::Hold) || e_reader.is_empty() {
+    if e_reader.is_empty() {
         return;
     }
 
-    if elements.is_empty() {
-        elements.extend(q_element_info.iter().flat_map(|info| info.parts.clone()));
+    if cracking_animations.is_empty() {
+        // cache list of cracking sprite animations
+        cracking_animations.extend(q_animation_info.iter().flat_map(|info| info.parts.clone()));
     }
 
     let (mut crack_health, mut current_material, crack_materials) = crack.into_inner();
 
-    let old_damage_level = damage_level(crack_health.0);
+    let old_damage_level = crack_health.damage_level();
 
     let damage = e_reader
         .read()
-        .filter(|event| elements.contains(&event.0))
+        .filter(|event| cracking_animations.contains(&event.entity))
         .count() as u8;
     e_reader.clear();
 
     crack_health.0 = crack_health.saturating_sub(damage);
 
-    let new_damage_level = damage_level(crack_health.0);
+    let new_damage_level = crack_health.damage_level();
 
     if new_damage_level != old_damage_level {
-        current_material.0 = crack_materials[new_damage_level].clone_weak();
-    }
-
-    fn damage_level(health: u8) -> usize {
-        match health {
-            255 => 0,
-            192..255 => 1,
-            128..192 => 2,
-            64..128 => 3,
-            1..64 => 4,
-            0 => 5,
+        if let Some(new_material) = crack_materials.get(new_damage_level) {
+            current_material.0 = new_material.clone_weak();
         }
     }
+
+    if new_damage_level == 5 {
+        progress.insert(ProgressFlag::CrackOpen);
+    }
 }
+
+// Check crack is out of health
+// No added sugar
+// fn crack_health_zero(crack_health: Single<&CrackHealth>) -> bool {
+//     crack_health.eq(&u8::MIN)
+// }
 
 fn over_interactables(
     trigger: Trigger<Pointer<Over>>,

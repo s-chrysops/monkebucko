@@ -68,6 +68,11 @@ pub fn game_plugin(app: &mut App) {
         .add_plugins((bones_plugin, egg_plugin, topdown_plugin))
         .add_systems(OnEnter(InGame), game_setup)
         .add_systems(PreUpdate, get_user_input)
+        // .add_systems(
+        //     Update,
+        //     (|state: Res<State<AppState>>| info!("{:?}", state.get()))
+        //         .run_if(state_changed::<AppState>),
+        // )
         .add_computed_state::<InGame>()
         .add_computed_state::<MovementEnabled>()
         .add_sub_state::<GameState>()
@@ -79,7 +84,6 @@ pub fn game_plugin(app: &mut App) {
 fn game_setup(mut _commands: Commands) {
     // commands.set_state(GameState::Egg);
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct MovementEnabled;
@@ -120,6 +124,7 @@ fn disable_movement(
         });
     }
 }
+
 #[derive(Debug, Default, Deref, DerefMut, Resource)]
 struct AssetTracker {
     #[deref]
@@ -144,6 +149,10 @@ impl AssetTracker {
             self.count == Self::CONFIRMATION_FRAMES
         }
     }
+
+    // fn add<A: Asset>(&mut self, handle: &Handle<A>){
+    //     self.push(handle.clone_weak().untyped());
+    // }
 }
 
 #[derive(Debug, Reflect)]
@@ -223,6 +232,10 @@ fn get_user_input(
     user_input.jump = jump_state;
     user_input.swap = swap_state;
     user_input.interact = interact_state;
+}
+
+fn just_pressed_escape(key_input: Res<ButtonInput<KeyCode>>) -> bool{
+    key_input.just_pressed(KeyCode::Escape)
 }
 
 fn just_pressed_jump(user_input: Res<UserInput>) -> bool {
