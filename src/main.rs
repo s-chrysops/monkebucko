@@ -15,6 +15,7 @@ use bevy_text_animation::TextAnimatorPlugin;
 use serde::{Deserialize, Serialize};
 
 use animation::sprite_animations_plugin;
+use audio::audio_plugin;
 use game::game_plugin;
 use menu::menu_plugin;
 use progress::progress_plugin;
@@ -23,6 +24,7 @@ use splash::splash_plugin;
 use crate::auto_scaling::ScalePlugin;
 
 mod animation;
+mod audio;
 mod game;
 mod menu;
 mod progress;
@@ -96,6 +98,7 @@ fn main() {
         EntropyPlugin::<WyRand>::default(),
     ))
     .add_plugins((
+        audio_plugin,
         game_plugin,
         menu_plugin,
         splash_plugin,
@@ -158,8 +161,8 @@ struct Settings {
     swap:     KeyCode,
     interact: KeyCode,
 
-    sound_vol: u32,
-    music_vol: u32,
+    sound_vol: f32,
+    music_vol: f32,
 }
 
 impl Default for Settings {
@@ -173,8 +176,8 @@ impl Default for Settings {
             swap:     KeyCode::KeyQ,
             interact: KeyCode::KeyE,
 
-            sound_vol: 10,
-            music_vol: 10,
+            sound_vol: 1.0,
+            music_vol: 1.0,
         }
     }
 }

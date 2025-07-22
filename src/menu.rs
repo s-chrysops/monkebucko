@@ -1,9 +1,5 @@
 #![allow(clippy::type_complexity)]
-use bevy::{
-    color::palettes::css::*,
-    ecs::{spawn::SpawnWith, system::SystemId},
-    prelude::*,
-};
+use bevy::{color::palettes::css::*, ecs::spawn::SpawnWith, prelude::*};
 use bevy_persistent::Persistent;
 
 use crate::progress::{Progress, ProgressStorage, SaveSlot};
@@ -47,21 +43,16 @@ enum MenuButtonAction {
     Quit,
 }
 
-#[derive(Component, PartialEq, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Component, PartialEq)]
 enum RadioSetting {
     Sound,
     Music,
 }
 
-#[derive(Component, PartialEq, Clone, Copy)]
+#[derive(Component, Clone, Copy)]
 struct RadioValue(u32);
 
-#[derive(Resource)]
-struct SaveSystemId(SystemId);
-
 pub fn menu_plugin(app: &mut App) {
-    let save_system_id = app.register_system(save_settings);
-
     app.add_sub_state::<MenuState>()
         .add_systems(OnEnter(MenuState::Main), main_menu_setup)
         .add_systems(OnExit(MenuState::Main), despawn_screen::<OnMainMenu>)
@@ -77,8 +68,7 @@ pub fn menu_plugin(app: &mut App) {
             Update,
             radio_settings_system.run_if(in_state(MenuState::Settings)),
         )
-        .add_systems(Update, start_game.run_if(in_state(MenuState::Data)))
-        .insert_resource(SaveSystemId(save_system_id));
+        .add_systems(Update, start_game.run_if(in_state(MenuState::Data)));
 }
 
 fn menu_action(
@@ -90,7 +80,6 @@ fn menu_action(
     mut menu_state: ResMut<NextState<MenuState>>,
     // mut game_state: ResMut<NextState<AppState>>,
     mut commands: Commands,
-    save_system_id: Res<SaveSystemId>,
 ) {
     for (interaction, menu_button_action) in &interaction_query {
         if *interaction != Interaction::Pressed {
@@ -105,8 +94,7 @@ fn menu_action(
             }
             MenuButtonAction::Settings => menu_state.set(MenuState::Settings),
             MenuButtonAction::SaveSettings => {
-                // settings.persist().expect("Failed writing settings to disk");
-                commands.run_system(save_system_id.0);
+                commands.run_system_cached(save_settings);
                 menu_state.set(MenuState::Main);
             }
             MenuButtonAction::BackToMainMenu => menu_state.set(MenuState::Main),
@@ -313,25 +301,25 @@ fn settings_menu_setup(
                     TextColor(TEXT_COLOR),
                 )),
                 SpawnWith(move |parent: &mut ChildSpawner| {
-                    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-                        .into_iter()
-                        .for_each(|volume_setting| {
-                            let mut entity = parent.spawn((
-                                RadioSetting::Music,
-                                Button,
-                                Node {
-                                    width: Val::Px(32.0),
-                                    height: Val::Px(48.0),
-                                    margin: UiRect::all(Val::Px(8.0)),
-                                    ..default()
-                                },
-                                BackgroundColor(NORMAL_BUTTON),
-                                RadioValue(volume_setting),
-                            ));
-                            if music_vol == volume_setting {
-                                entity.insert(SelectedOption);
-                            }
-                        });
+                    (0..=10).for_each(|level| {
+                        let mut entity = parent.spawn((
+                            RadioSetting::Music,
+                            Button,
+                            Node {
+                                width: Val::Px(32.0),
+                                height: Val::Px(48.0),
+                                margin: UiRect::all(Val::Px(8.0)),
+                                ..default()
+                            },
+                            BackgroundColor(NORMAL_BUTTON),
+                            RadioValue(level),
+                        ));
+
+                        let volume = 0.1 * level as f32;
+                        if music_vol == volume {
+                            entity.insert(SelectedOption);
+                        }
+                    });
                 }),
             )),
         ))
@@ -351,25 +339,25 @@ fn settings_menu_setup(
                     TextColor(TEXT_COLOR),
                 )),
                 SpawnWith(move |parent: &mut ChildSpawner| {
-                    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-                        .into_iter()
-                        .for_each(|volume_setting| {
-                            let mut entity = parent.spawn((
-                                RadioSetting::Sound,
-                                Button,
-                                Node {
-                                    width: Val::Px(32.0),
-                                    height: Val::Px(48.0),
-                                    margin: UiRect::all(Val::Px(8.0)),
-                                    ..default()
-                                },
-                                BackgroundColor(NORMAL_BUTTON),
-                                RadioValue(volume_setting),
-                            ));
-                            if sound_vol == volume_setting {
-                                entity.insert(SelectedOption);
-                            }
-                        });
+                    (0..=10).for_each(|level| {
+                        let mut entity = parent.spawn((
+                            RadioSetting::Sound,
+                            Button,
+                            Node {
+                                width: Val::Px(32.0),
+                                height: Val::Px(48.0),
+                                margin: UiRect::all(Val::Px(8.0)),
+                                ..default()
+                            },
+                            BackgroundColor(NORMAL_BUTTON),
+                            RadioValue(level),
+                        ));
+
+                        let volume = 0.1 * level as f32;
+                        if sound_vol == volume {
+                            entity.insert(SelectedOption);
+                        }
+                    });
                 }),
             )),
         ))
@@ -598,40 +586,42 @@ fn button_system(
 // This system updates the settings when a new value for a setting is selected, and marks
 // the button as the one currently selected
 fn radio_settings_system(
-    interaction_query: Query<
-        (&Interaction, Entity, &RadioSetting),
+    q_interaction: Query<
+        (Entity, &Interaction, &RadioSetting),
         (Changed<Interaction>, With<Button>),
     >,
-    mut selected_query: Query<(Entity, &mut BackgroundColor, &RadioSetting), With<SelectedOption>>,
+    mut q_selected: Query<(Entity, &mut BackgroundColor, &RadioSetting), With<SelectedOption>>,
     mut commands: Commands,
 ) {
-    for (interaction, current_button, current_radio_type) in &interaction_query {
-        let (previous_button, mut previous_button_color, _setvol) = selected_query
-            .iter_mut()
-            .find(|(_entity, _color, previous_radio_type)| {
-                previous_radio_type == &current_radio_type
-            })
-            .unwrap();
-
-        if *interaction != Interaction::Pressed || current_button == previous_button {
-            continue;
-        }
-
-        *previous_button_color = NORMAL_BUTTON.into();
-        commands.entity(previous_button).remove::<SelectedOption>();
-        commands.entity(current_button).insert(SelectedOption);
-    }
+    q_interaction
+        .iter()
+        .filter_map(|(button, interaction, setting)| {
+            matches!(interaction, Interaction::Pressed).then_some((button, setting))
+        })
+        .for_each(|(current_button, current_setting)| {
+            if let Some((previous_button, mut previous_button_color)) = q_selected
+                .iter_mut()
+                .filter(|(button, ..)| *button != current_button)
+                .find_map(|(button, color, previous_setting)| {
+                    (previous_setting == current_setting).then_some((button, color))
+                })
+            {
+                *previous_button_color = NORMAL_BUTTON.into();
+                commands.entity(previous_button).remove::<SelectedOption>();
+                commands.entity(current_button).insert(SelectedOption);
+            }
+        });
 }
 
 fn save_settings(
     mut settings: ResMut<Persistent<Settings>>,
-    settings_query: Query<(&RadioSetting, &RadioValue), With<SelectedOption>>,
+    q_radio_settings: Query<(&RadioSetting, &RadioValue), With<SelectedOption>>,
 ) {
-    for (setting, value) in settings_query {
+    for (setting, RadioValue(value)) in q_radio_settings {
         match setting {
-            RadioSetting::Sound => settings.sound_vol = value.0,
-            RadioSetting::Music => settings.music_vol = value.0,
+            RadioSetting::Sound => settings.sound_vol = 0.1 * *value as f32,
+            RadioSetting::Music => settings.music_vol = 0.1 * *value as f32,
         }
     }
-    settings.persist().expect("Failed writing settings to disk");
+    settings.persist().expect("Settings should be loaded");
 }
