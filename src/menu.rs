@@ -2,7 +2,10 @@
 use bevy::{color::palettes::css::*, ecs::spawn::SpawnWith, prelude::*};
 use bevy_persistent::Persistent;
 
-use crate::progress::{Progress, ProgressStorage, SaveSlot};
+use crate::{
+    game::effects::{fade_to_black, FadeIn},
+    progress::{Progress, ProgressStorage, SaveSlot},
+};
 
 use super::{AppState, Settings, despawn_screen};
 
@@ -20,6 +23,7 @@ enum MenuState {
     Main,
     Settings,
     Data,
+    Fading,
 }
 
 #[derive(Component)]
@@ -68,7 +72,9 @@ pub fn menu_plugin(app: &mut App) {
             Update,
             radio_settings_system.run_if(in_state(MenuState::Settings)),
         )
-        .add_systems(Update, start_game.run_if(in_state(MenuState::Data)));
+        .add_systems(Update, setup_progress.run_if(in_state(MenuState::Data)))
+        .add_systems(OnEnter(MenuState::Fading), fade_to_black)
+        .add_systems(Update, start_game.run_if(on_event::<FadeIn>));
 }
 
 fn menu_action(
@@ -545,7 +551,7 @@ fn setup_data_menu(mut commands: Commands, progress_storage: Res<Persistent<Prog
     ));
 }
 
-fn start_game(
+fn setup_progress(
     q_start: Query<(&Interaction, &SaveSlot), With<StartButton>>,
     progress_storage: ResMut<Persistent<ProgressStorage>>,
     mut commands: Commands,
@@ -559,11 +565,15 @@ fn start_game(
         };
         commands.insert_resource(progress);
         commands.insert_resource(*save_slot);
-        commands.set_state(AppState::Game {
-            paused:   false,
-            can_move: true,
-        });
+        commands.set_state(MenuState::Fading);
     }
+}
+
+fn start_game(mut app_state: ResMut<NextState<AppState>>) {
+    app_state.set(AppState::Game {
+        paused:   false,
+        can_move: false,
+    });
 }
 
 // This system handles changing all buttons color based on mouse interaction

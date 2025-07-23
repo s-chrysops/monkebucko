@@ -56,6 +56,7 @@ pub fn egg_plugin(app: &mut App) {
         (
             initialize_crt_panel,
             initialize_interaction_observers,
+            effects::fade_from_black,
             enable_movement,
         )
             .chain(),
