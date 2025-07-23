@@ -1,7 +1,8 @@
+use bevy::audio::Volume;
 use bevy::prelude::*;
 
 use crate::{
-    RENDER_LAYER_OVERLAY, RENDER_LAYER_SPECIAL, RENDER_LAYER_WORLD, animation::*,
+    RENDER_LAYER_OVERLAY, RENDER_LAYER_SPECIAL, RENDER_LAYER_WORLD, animation::*, audio::*,
     auto_scaling::AspectRatio, despawn_screen, game::interactions::*, progress::*,
 };
 
@@ -25,15 +26,6 @@ enum EggState {
     Cracking,
 }
 
-#[derive(Debug, Component, Deref, DerefMut)]
-struct CameraSensitivity(Vec2);
-
-impl Default for CameraSensitivity {
-    fn default() -> Self {
-        Self(vec2(0.003, 0.002))
-    }
-}
-
 pub fn egg_plugin(app: &mut App) {
     use bevy::window::WindowResized;
 
@@ -47,7 +39,11 @@ pub fn egg_plugin(app: &mut App) {
     )
     .add_systems(
         OnExit(GameState::Egg),
-        (despawn_screen::<OnEggScene>, cursor_ungrab),
+        (
+            despawn_screen::<OnEggScene>,
+            fade_out_ambience,
+            cursor_ungrab,
+        ),
     )
     .add_systems(Update, update_pointer.run_if(on_event::<WindowResized>))
     .add_systems(Update, wait_till_loaded.run_if(in_state(EggState::Loading)))
@@ -148,6 +144,7 @@ fn setup_player(mut commands: Commands) {
         CameraSensitivity::default(),
         Transform::from_xyz(0.0, 1.0, 0.0),
         Visibility::default(),
+        SpatialListener::default(),
         children![(
             WorldCamera,
             MeshPickingCamera,
@@ -226,6 +223,17 @@ fn setup_world(
         },
         Transform::from_xyz(0.0, 2.9, 0.0),
     ));
+
+    let hum = asset_server.load("audio/amb/hum.ogg");
+    asset_tracker.push(hum.clone().untyped());
+
+    commands.spawn((
+        Ambience,
+        Name::new("Egg Ambience"),
+        AudioPlayer::new(hum),
+        PlaybackSettings::LOOP.with_volume(Volume::SILENT),
+        AudioFadeIn,
+    ));
 }
 
 #[derive(Debug, Component)]
@@ -275,6 +283,15 @@ fn initialize_interaction_observers(
 
 const ROOM_BOUNDARY: Vec3 = Vec3::splat(1.3);
 const PLAYER_STEP: f32 = 0.04;
+
+#[derive(Debug, Component, Deref, DerefMut)]
+struct CameraSensitivity(Vec2);
+
+impl Default for CameraSensitivity {
+    fn default() -> Self {
+        Self(vec2(0.003, 0.002))
+    }
+}
 
 use bevy::input::mouse::AccumulatedMouseMotion;
 

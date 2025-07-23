@@ -23,7 +23,7 @@ pub fn egg_cracking_plugin(app: &mut App) {
         OnEnter(GameState::Egg),
         (setup_cracking_animations, setup_cracking_elements),
     )
-    .add_systems(Update, reveal_crack)
+    .add_systems(Update, reveal_crack.run_if(in_state(EggState::Ready)))
     .add_systems(
         OnEnter(EggState::Cracking),
         (setup_ease_and_play, disable_movement),
@@ -32,16 +32,17 @@ pub fn egg_cracking_plugin(app: &mut App) {
         Update,
         (
             advance_crack_phase.run_if(not(pressing_interact).and(just_pressed_swap)),
-            update_crack.run_if(pressing_interact),
+            (update_crack, update_intro_player).run_if(pressing_interact),
             play_egg_exit.run_if(just_pressed_jump.and(has_progress_flag(ProgressFlag::CrackOpen))),
             (cracking_animations_out, enable_movement, escape_cracking).run_if(just_pressed_escape),
+            play_sfx.run_if(just_pressed_interact),
+            (kill_all_sound, kill_violence).run_if(not(pressing_interact)),
         )
             .run_if(in_state(EggState::Cracking)),
     )
     .add_systems(
         Update,
         (
-            reveal_crack,
             wait_for_ease.run_if(in_state(CrackingPhase::Easing)),
             punch.run_if(in_state(CrackingPhase::Punch)),
             fast_punch.run_if(in_state(CrackingPhase::FastPunch)),
@@ -78,9 +79,6 @@ struct CrackingAnimationInfo {
     out_node: AnimationNodeIndex,
 }
 
-#[derive(Debug, Component)]
-struct Crack;
-
 #[derive(Debug, Deref, DerefMut, Component)]
 struct CrackHealth(u8);
 
@@ -106,11 +104,26 @@ struct CrackMaterials([Handle<StandardMaterial>; 6]);
 #[derive(Debug, Component)]
 struct CrackingRoot;
 
+#[derive(Debug, Component)]
+struct AmiIntroPlayer;
+
+#[derive(Debug, Component)]
+struct CrackingSFX {
+    punches:    [Handle<AudioSource>; 4],
+    fast_punch: Handle<AudioSource>,
+    quad_punch: Handle<AudioSource>,
+    violence:   Handle<AudioSource>,
+}
+
+#[derive(Debug, Component)]
+struct ViolenceMusic;
+
 fn setup_cracking_elements(
     mut commands: Commands,
     mut asset_tracker: ResMut<AssetTracker>,
     asset_server: Res<AssetServer>,
     progress: Res<Progress>,
+    settings: Res<Persistent<Settings>>,
 ) {
     use bevy::asset::RenderAssetUsages;
     use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
@@ -154,6 +167,35 @@ fn setup_cracking_elements(
         RENDER_LAYER_SPECIAL,
     ));
 
+    let cracking_sfx = CrackingSFX {
+        punches:    [
+            "audio/sfx/punch_0.ogg",
+            "audio/sfx/punch_1.ogg",
+            "audio/sfx/punch_2.ogg",
+            "audio/sfx/punch_3.ogg",
+        ]
+        .map(|path| {
+            let sound = asset_server.load(path);
+            asset_tracker.push(sound.clone_weak().untyped());
+            sound
+        }),
+        fast_punch: {
+            let sound = asset_server.load("audio/sfx/fast_punch.ogg");
+            asset_tracker.push(sound.clone_weak().untyped());
+            sound
+        },
+        quad_punch: {
+            let sound = asset_server.load("audio/sfx/quad_punch.ogg");
+            asset_tracker.push(sound.clone_weak().untyped());
+            sound
+        },
+        violence:   {
+            let sound = asset_server.load("audio/sfx/violence.ogg");
+            asset_tracker.push(sound.clone_weak().untyped());
+            sound
+        },
+    };
+
     let cracking_root = commands
         .spawn((
             OnEggScene,
@@ -161,6 +203,7 @@ fn setup_cracking_elements(
             Name::new("Cracking Root"),
             Transform::default(),
             Visibility::Hidden,
+            cracking_sfx,
             SpecialInteraction::new(move |commands: &mut Commands, _entity: Entity| {
                 commands.set_state(EggState::Cracking);
             }),
@@ -207,18 +250,20 @@ fn setup_cracking_elements(
 
     let (health, Some(material), reveal_time) = (match progress.contains(&ProgressFlag::CrackOpen) {
         true => (0, crack_materials.last(), 2.0),
-        false => (200, crack_materials.first(), 32.0),
+        false => (200, crack_materials.first(), 8.0),
     }) else {
         unreachable!()
     };
 
+    let crack_transform =
+        Transform::from_xyz(1.49, 1.0, 0.5).with_rotation(Quat::from_rotation_y(-FRAC_PI_2));
+
     // Crack
     commands.spawn((
         ChildOf(cracking_root),
-        Crack,
         Name::new("Crack"),
         CrackHealth(health),
-        Transform::from_xyz(1.49, 1.0, 0.5).with_rotation(Quat::from_rotation_y(-FRAC_PI_2)),
+        crack_transform,
         Visibility::default(),
         Mesh3d(asset_server.add(Rectangle::new(1.0, 1.0).into())),
         MeshMaterial3d(material.clone_weak()),
@@ -227,12 +272,38 @@ fn setup_cracking_elements(
         EntityInteraction::Special(cracking_root),
     ));
 
+    let violence_music = asset_server.load("audio/music/catching_air.ogg");
+    asset_tracker.push(violence_music.clone_weak().untyped());
+    commands.spawn((
+        ViolenceMusic,
+        ChildOf(cracking_root),
+        Name::new("Violence Music"),
+        AudioPlayer::new(violence_music),
+        PlaybackSettings::LOOP
+            .with_volume(Volume::Linear(settings.music_vol))
+            .muted(),
+    ));
+
     commands
         .entity(cracking_root)
         .insert(CrackingTimer(Timer::from_seconds(
             reveal_time,
             TimerMode::Once,
         )));
+
+    let ami_intro = asset_server.load("audio/music/ami_intro.ogg");
+    asset_tracker.push(ami_intro.clone_weak().untyped());
+
+    commands.spawn((
+        AmiIntroPlayer,
+        Name::new("Ami Intro Player"),
+        AudioPlayer::new(ami_intro),
+        PlaybackSettings::LOOP
+            .paused()
+            .with_volume(Volume::Linear(settings.music_vol / 6.0))
+            .with_spatial(true),
+        crack_transform,
+    ));
 }
 
 fn setup_cracking_animations(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -666,6 +737,7 @@ fn reveal_crack(
     time: Res<Time>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     crt_panel: Single<&MeshMaterial3d<StandardMaterial>, With<CrtPanel>>,
+    ami_intro: Single<&SpatialAudioSink, With<AmiIntroPlayer>>,
 ) {
     let (mut timer, mut visibility) = crack.into_inner();
     if timer.tick(time.delta()).just_finished() {
@@ -675,6 +747,7 @@ fn reveal_crack(
             material.base_color = WHITE.into();
             material.emissive = LinearRgba::rgb(16.0, 16.0, 16.0);
         }
+        ami_intro.play();
     }
 }
 
@@ -895,7 +968,7 @@ fn quad_punch(
 
 fn violence(
     user_input: Res<UserInput>,
-    mut q_elements: Query<(&CrackingAnimationInfo, &mut AnimationPlayer), Without<Player>>,
+    mut q_elements: Query<(&CrackingAnimationInfo, &mut AnimationPlayer)>,
     mut q_sprite_animations: Query<&mut SpriteAnimation>,
 ) {
     struct SpriteInfo {
@@ -947,6 +1020,61 @@ fn violence(
         });
 }
 
+fn play_sfx(
+    crack_phase: Res<State<CrackingPhase>>,
+    sfx: Single<&CrackingSFX, With<CrackingRoot>>,
+    settings: Res<Persistent<Settings>>,
+    mut violence: Single<&mut AudioSink, With<ViolenceMusic>>,
+    mut cursor: Local<usize>,
+    mut commands: Commands,
+) {
+    match crack_phase.get() {
+        CrackingPhase::Punch => {
+            let Some(punch_sfx) = sfx.punches.get(*cursor) else {
+                unreachable!();
+            };
+
+            commands.spawn((
+                Sound,
+                AudioPlayer::new(punch_sfx.clone_weak()),
+                PlaybackSettings::DESPAWN.with_volume(Volume::Linear(settings.sound_vol)),
+            ));
+
+            *cursor += 1;
+            if *cursor == sfx.punches.len() {
+                *cursor = 0;
+            }
+        }
+        CrackingPhase::FastPunch => {
+            commands.spawn((
+                Sound,
+                AudioPlayer::new(sfx.fast_punch.clone_weak()),
+                PlaybackSettings::LOOP.with_volume(Volume::Linear(settings.sound_vol)),
+            ));
+        }
+        CrackingPhase::QuadPunch => {
+            commands.spawn((
+                Sound,
+                AudioPlayer::new(sfx.quad_punch.clone_weak()),
+                PlaybackSettings::LOOP.with_volume(Volume::Linear(settings.sound_vol)),
+            ));
+        }
+        CrackingPhase::Violence => {
+            violence.unmute();
+            commands.spawn((
+                Sound,
+                AudioPlayer::new(sfx.violence.clone_weak()),
+                PlaybackSettings::LOOP.with_volume(Volume::Linear(settings.sound_vol)),
+            ));
+        }
+        _ => (),
+    }
+}
+
+fn kill_violence(mut violence: Single<&mut AudioSink, With<ViolenceMusic>>) {
+    violence.mute();
+}
+
 fn play_egg_exit(
     player: Single<(&mut AnimationPlayer, &ExitNode), With<Player>>,
     mut crack_phase: ResMut<NextState<CrackingPhase>>,
@@ -993,14 +1121,11 @@ fn cracking_animations_out(
 
 fn update_crack(
     q_animation_info: Query<&CrackingAnimationInfo>,
-    crack: Single<
-        (
-            &mut CrackHealth,
-            &mut MeshMaterial3d<StandardMaterial>,
-            &CrackMaterials,
-        ),
-        With<Crack>,
-    >,
+    crack: Single<(
+        &mut CrackHealth,
+        &mut MeshMaterial3d<StandardMaterial>,
+        &CrackMaterials,
+    )>,
     mut e_reader: EventReader<SpriteAnimationFinished>,
     mut cracking_animations: Local<Vec<Entity>>,
     mut progress: ResMut<Progress>,
@@ -1036,5 +1161,19 @@ fn update_crack(
 
     if new_damage_level == 5 {
         progress.insert(ProgressFlag::CrackOpen);
+    }
+}
+
+fn update_intro_player(
+    crack_health: Single<&CrackHealth, Changed<CrackHealth>>,
+    mut ami_intro: Single<&mut SpatialAudioSink, With<AmiIntroPlayer>>,
+    settings: Res<Persistent<Settings>>,
+    mut old_damage_level: Local<usize>,
+) {
+    let new_damage_level = crack_health.damage_level();
+    if *old_damage_level != new_damage_level {
+        *old_damage_level = new_damage_level;
+        let new_volume = Volume::Linear(settings.music_vol * (new_damage_level + 1) as f32 / 6.0);
+        ami_intro.set_volume(new_volume);
     }
 }
