@@ -52,8 +52,7 @@ pub fn topdown_plugin(app: &mut App) {
                     .pipe(play_interactions)
                     .run_if(in_state(InteractionState::None).and(just_pressed_interact)),
             )
-                .run_if(in_state(MovementEnabled))
-                .run_if(in_state(TopDownState::Ready)),
+                .run_if(in_state(TopDownState::Ready).and(in_state(MovementEnabled))),
         )
         .add_systems(OnEnter(TopDownState::Warping), fade_to_black)
         .add_systems(
@@ -62,12 +61,11 @@ pub fn topdown_plugin(app: &mut App) {
         )
         .add_systems(
             OnExit(GameState::TopDown),
-            (despawn_screen::<OnTopDown>, reset_current_map),
+            (despawn_screen::<OnTopDown>, reset_map_info),
         )
-        .add_observer(setup_current_map)
+        .add_observer(initialize_map_info)
         .add_sub_state::<TopDownState>()
-        .init_resource::<CurrentMap>()
-        // .init_resource::<PlayerSpawnLocation>()
+        .init_resource::<MapInfo>()
         .init_resource::<TopdownMapHandles>()
         .register_type::<HopState>()
         .register_type::<Submerged>()
@@ -103,16 +101,6 @@ fn setup_camera(mut commands: Commands, progress: Res<Progress>) {
         RENDER_LAYER_WORLD,
     ));
 }
-
-// #[derive(Debug, Deref, DerefMut, Resource)]
-// pub struct PlayerSpawnLocation(pub Vec3);
-
-// impl Default for PlayerSpawnLocation {
-//     fn default() -> Self {
-//         const FIRST_SPAWN: Vec3 = vec3(832.0, 1024.0, 0.0);
-//         PlayerSpawnLocation(FIRST_SPAWN)
-//     }
-// }
 
 fn setup_player(mut commands: Commands, asset_server: Res<AssetServer>, progress: Res<Progress>) {
     let player_sprites: Handle<Image> = asset_server.load("sprites/bucko_bounce.png");
@@ -153,16 +141,15 @@ fn setup_player(mut commands: Commands, asset_server: Res<AssetServer>, progress
 
 fn setup_map(
     mut commands: Commands,
-    spawned_tiled_maps: Query<Entity, With<TiledMapMarker>>,
+    previous_map: Query<Entity, With<TiledMapMarker>>,
     topdown_maps: Res<TopdownMapHandles>,
-    // current_map: Res<CurrentMap>,
     progress: ResMut<Progress>,
 ) {
-    spawned_tiled_maps.iter().for_each(|entity| {
+    if let Ok(entity) = previous_map.single() {
         commands.entity(entity).despawn();
-    });
-    commands.remove_resource::<Warp>();
-
+        commands.remove_resource::<Warp>();
+    };
+    
     let current_tiled_map = topdown_maps[progress.map].clone_weak();
     commands
         .spawn(TiledMapHandle(current_tiled_map))
@@ -172,7 +159,7 @@ fn setup_map(
 }
 
 #[derive(Debug, Default, Resource)]
-struct CurrentMap {
+struct MapInfo {
     ready: bool,
 
     // index: TopdownMapIndex,
@@ -183,19 +170,19 @@ struct CurrentMap {
     water_layer: Option<Entity>,
 }
 
-fn reset_current_map(mut current_map: ResMut<CurrentMap>) {
-    *current_map = CurrentMap::default();
+fn reset_map_info(mut map_info: ResMut<MapInfo>) {
+    *map_info = MapInfo::default();
 }
 
 const Z_BETWEEN_LAYERS: f32 = 100.0;
 
-fn setup_current_map(
+fn initialize_map_info(
     trigger: Trigger<TiledMapCreated>,
     a_tiled_maps: Res<Assets<TiledMap>>,
     q_tiled_maps: Query<(Entity, &mut TiledMapStorage), With<TiledMapMarker>>,
     q_tiled_layers: Query<(Entity, &Name), With<TiledMapTileLayerForTileset>>,
     mut q_tiled_objects: Query<&mut Transform, With<TiledMapObject>>,
-    mut current_map: ResMut<CurrentMap>,
+    mut map_info: ResMut<MapInfo>,
 ) {
     let Some(tiled_map) = trigger.event().get_map_asset(&a_tiled_maps) else {
         warn!("Failed to load Tiled map asset");
@@ -215,13 +202,13 @@ fn setup_current_map(
         }
     });
 
-    current_map.ready = true;
+    map_info.ready = true;
 
-    current_map.rect = tiled_map.rect;
-    current_map.tilemap_size = tiled_map.tilemap_size;
+    map_info.rect = tiled_map.rect;
+    map_info.tilemap_size = tiled_map.tilemap_size;
 
-    current_map.entity = Some(map_entity);
-    current_map.water_layer = q_tiled_layers.iter().find_map(|(entity, name)| {
+    map_info.entity = Some(map_entity);
+    map_info.water_layer = q_tiled_layers.iter().find_map(|(entity, name)| {
         (name.as_str() == "TiledMapTileLayerForTileset(water, water)").then_some(entity)
     });
 }
@@ -261,11 +248,8 @@ fn setup_collider_bodies(
     commands.entity(trigger.entity).insert(RigidBody::Static);
 }
 
-fn wait_for_ready(
-    current_map: Res<CurrentMap>,
-    mut topdown_state: ResMut<NextState<TopDownState>>,
-) {
-    if current_map.ready {
+fn wait_for_ready(map_info: Res<MapInfo>, mut topdown_state: ResMut<NextState<TopDownState>>) {
+    if map_info.ready {
         topdown_state.set(TopDownState::Ready);
     }
 }
@@ -345,17 +329,11 @@ fn trigger_warp(
 
 fn warp_player(
     warp: Res<Warp>,
-    // mut current_map: ResMut<CurrentMap>,
     mut progress: ResMut<Progress>,
     mut player_transform: Single<&mut Transform, (With<Player>, Without<WorldCamera>)>,
     mut camera_transform: Single<&mut Transform, With<WorldCamera>>,
     mut topdown_state: ResMut<NextState<TopDownState>>,
 ) {
-    // *current_map = CurrentMap {
-    //     index: warp.target_map,
-    //     ..default()
-    // };
-
     let Vec3 { x, y, z } = player_transform.translation;
     info!("Player at ({}, {}, {})", x, y, z);
 
@@ -380,11 +358,11 @@ fn warp_player(
 
 fn update_player_z(
     mut player_transform: Single<&mut Transform, (With<Player>, Changed<Transform>)>,
-    current_map: Res<CurrentMap>,
+    map_info: Res<MapInfo>,
 ) {
-    let offset_y = player_transform.translation.y - current_map.rect.min.y;
+    let offset_y = player_transform.translation.y - map_info.rect.min.y;
     player_transform.translation.z =
-        -offset_y / current_map.rect.height() * Z_BETWEEN_LAYERS - Z_BETWEEN_LAYERS;
+        -offset_y / map_info.rect.height() * Z_BETWEEN_LAYERS - Z_BETWEEN_LAYERS;
 }
 
 #[derive(Debug, Event)]
@@ -495,19 +473,19 @@ struct SplashUpdate;
 
 fn update_player_submerged(
     player: Single<(&Transform, &mut Submerged), (With<Player>, Changed<Transform>)>,
-    current_map: Res<CurrentMap>,
+    map_info: Res<MapInfo>,
     q_tiled_layers: Query<&TileStorage, With<TiledMapTileLayerForTileset>>,
     q_water_tiles: Query<&WaterTile, With<TiledMapTile>>,
 ) {
     let (transform, mut submerged) = player.into_inner();
 
-    let Some(player_tile_pos) = get_tile_pos(transform.translation, &current_map.tilemap_size)
+    let Some(player_tile_pos) = get_tile_pos(transform.translation, &map_info.tilemap_size)
     else {
         debug_once!("Player outside map");
         return;
     };
 
-    let Some(water_layer_entity) = current_map.water_layer else {
+    let Some(water_layer_entity) = map_info.water_layer else {
         debug_once!("Current map has no water layer");
         return;
     };
@@ -645,7 +623,7 @@ fn camera_system(
     mut camera_transform: Single<&mut Transform, With<WorldCamera>>,
     player: Single<&Transform, (With<Player>, Without<WorldCamera>)>,
     user_input: Res<UserInput>,
-    current_map: Res<CurrentMap>,
+    map_info: Res<MapInfo>,
     mut stopwatch: Local<Stopwatch>,
     mut target_direction: Local<Vec2>,
     time: Res<Time>,
@@ -672,8 +650,8 @@ fn camera_system(
     let camera_target = player.translation + camera_offset;
 
     // Bounds camera from rendering the void outside the current map
-    let camera_min = (current_map.rect.min + (view_size / 2.0) - HALF_TILE_SIZE).extend(f32::MIN);
-    let camera_max = (current_map.rect.max - (view_size / 2.0) - HALF_TILE_SIZE).extend(f32::MAX);
+    let camera_min = (map_info.rect.min + (view_size / 2.0) - HALF_TILE_SIZE).extend(f32::MIN);
+    let camera_max = (map_info.rect.max - (view_size / 2.0) - HALF_TILE_SIZE).extend(f32::MAX);
 
     camera_transform.translation = camera_transform
         .translation
