@@ -91,7 +91,7 @@ pub fn topdown_plugin(app: &mut App) {
             Update,
             warp_player.run_if(in_state(TopDownState::Warping).and(on_event::<FadeIn>)),
         );
-        
+
     app.add_observer(initialize_map_info)
         .add_sub_state::<TopDownState>()
         .init_resource::<MapInfo>()
@@ -189,15 +189,28 @@ fn setup_first_launch(
     let camera_in = camera_out + Vec3::Y * 128.0;
     let camera_id = AnimationTargetId::from_name(camera_name);
 
+    let title_name = Name::new("Title");
+    let title_id = AnimationTargetId::from_name(&title_name);
+
     let (graph, node) = AnimationGraph::from_clip(asset_server.add({
         let key_frames = [0.0, 4.0, 8.0, 16.0, 20.0];
+
         let positions = [camera_out, camera_out, camera_in, camera_in, camera_out];
-        let curve = AnimatableKeyframeCurve::new(key_frames.into_iter().zip(positions)).unwrap();
+        let opacities = [0.0, 0.0, 1.0, 1.0, 0.0];
+
+        let camera_curve =
+            AnimatableKeyframeCurve::new(key_frames.into_iter().zip(positions)).unwrap();
+        let title_curve =
+            AnimatableKeyframeCurve::new(key_frames.into_iter().zip(opacities)).unwrap();
 
         let mut clip = AnimationClip::default();
         clip.add_curve_to_target(
             camera_id,
-            AnimatableCurve::new(animated_field!(Transform::translation), curve),
+            AnimatableCurve::new(animated_field!(Transform::translation), camera_curve),
+        );
+        clip.add_curve_to_target(
+            title_id,
+            AnimatableCurve::new(SpriteAlphaProperty, title_curve),
         );
         clip
     }));
@@ -214,15 +227,26 @@ fn setup_first_launch(
             Name::new("First Launch"),
             AnimationGraphHandle(graph_handle),
             animator,
-            Sprite {
-                image: title,
-                custom_size: Some(Vec2::splat(512.0)),
-                ..Default::default()
-            },
-            Transform::from_xyz(832.0, 1200.0, 1.0),
+            Transform::default(),
             Visibility::default(),
         ))
         .id();
+
+    commands.spawn((
+        title_name,
+        ChildOf(first_launch),
+        Sprite {
+            image: title,
+            color: WHITE.with_alpha(0.0).into(),
+            ..Default::default()
+        },
+        AnimationTarget {
+            id:     title_id,
+            player: first_launch,
+        },
+        Transform::from_xyz(832.0, 1200.0, 1.0),
+        Visibility::default(),
+    ));
 
     commands.entity(camera).insert(AnimationTarget {
         id:     camera_id,
