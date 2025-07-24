@@ -36,7 +36,7 @@ pub fn egg_cracking_plugin(app: &mut App) {
             play_egg_exit.run_if(just_pressed_jump.and(has_progress_flag(ProgressFlag::CrackOpen))),
             (cracking_animations_out, enable_movement, escape_cracking).run_if(just_pressed_escape),
             play_sfx.run_if(just_pressed_interact),
-            (kill_all_sound, kill_violence).run_if(not(pressing_interact)),
+            (audio_kill_all::<Sound>, kill_violence).run_if(not(pressing_interact)),
         )
             .run_if(in_state(EggState::Cracking)),
     )

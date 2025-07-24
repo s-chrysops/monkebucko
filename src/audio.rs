@@ -25,20 +25,20 @@ pub fn audio_plugin(app: &mut App) {
 //         .for_each(|mut sink| sink.set_volume(volume_music));
 // }
 
-pub trait AudioType {}
-
 #[derive(Debug, Component)]
 pub struct Sound;
-
-impl AudioType for Sound {}
 
 #[derive(Debug, Component)]
 pub struct Music;
 
-impl AudioType for Music {}
-
 #[derive(Debug, Component)]
 pub struct Ambience;
+
+pub trait AudioType {}
+
+impl AudioType for Sound {}
+
+impl AudioType for Music {}
 
 impl AudioType for Ambience {}
 
@@ -93,33 +93,18 @@ fn fade_out<S>(
 
 pub fn audio_fade_out<T: Component + AudioType>(
     mut commands: Commands,
-    q_ambience: Query<Entity, (With<T>, Without<AudioFadeIn>)>,
+    q_audio: Query<Entity, (With<T>, Without<AudioFadeIn>)>,
 ) {
-    q_ambience.iter().for_each(|entity| {
+    q_audio.iter().for_each(|entity| {
         commands.entity(entity).insert(AudioFadeOut);
     });
 }
 
-// pub fn fade_out_ambience(
-//     mut commands: Commands,
-//     q_ambience: Query<Entity, (With<Ambience>, Without<AudioFadeIn>)>,
-// ) {
-//     q_ambience.iter().for_each(|entity| {
-//         commands.entity(entity).insert(AudioFadeOut);
-//     });
-// }
-
-// pub fn fade_out_music(
-//     mut commands: Commands,
-//     q_ambience: Query<Entity, (With<Music>, Without<AudioFadeIn>)>,
-// ) {
-//     q_ambience.iter().for_each(|entity| {
-//         commands.entity(entity).insert(AudioFadeOut);
-//     });
-// }
-
-pub fn kill_all_sound(mut commands: Commands, q_sounds: Query<Entity, With<Sound>>) {
-    q_sounds.iter().for_each(|entity| {
+pub fn audio_kill_all<T: Component + AudioType>(
+    mut commands: Commands,
+    q_audio: Query<Entity, With<T>>,
+) {
+    q_audio.iter().for_each(|entity| {
         commands.entity(entity).despawn();
     });
 }
