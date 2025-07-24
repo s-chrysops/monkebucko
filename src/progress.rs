@@ -111,6 +111,7 @@ pub enum ProgressFlag {
     #[default]
     None,
     CrackOpen,
+    FirstLaunch,
 }
 
 impl Hash for ProgressFlag {

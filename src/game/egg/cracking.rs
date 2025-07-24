@@ -295,6 +295,7 @@ fn setup_cracking_elements(
     asset_tracker.push(ami_intro.clone_weak().untyped());
 
     commands.spawn((
+        Music,
         AmiIntroPlayer,
         Name::new("Ami Intro Player"),
         AudioPlayer::new(ami_intro),

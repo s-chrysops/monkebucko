@@ -1,6 +1,10 @@
 #![allow(clippy::type_complexity)]
 use avian2d::prelude::*;
-use bevy::{prelude::*, time::Stopwatch};
+use bevy::{
+    animation::{AnimationTarget, AnimationTargetId, animated_field},
+    prelude::*,
+    time::Stopwatch,
+};
 use bevy_ecs_tiled::prelude::*;
 use bevy_ecs_tilemap::tiles::TileStorage;
 
@@ -8,12 +12,13 @@ use super::*;
 use crate::{
     RENDER_LAYER_WORLD, WINDOW_HEIGHT, WINDOW_WIDTH,
     animation::*,
+    audio::*,
     despawn_screen,
     game::{
         effects::*,
         interactions::{dialogue::DialoguePreload, *},
     },
-    progress::{Progress, save_progress_to_disk},
+    progress::*,
 };
 
 #[derive(Debug, Component)]
@@ -24,46 +29,70 @@ struct OnTopDown;
 enum TopDownState {
     #[default]
     Loading,
+    FirstLaunch,
     Ready,
     Warping,
 }
 
 pub fn topdown_plugin(app: &mut App) {
-    app.add_systems(OnEnter(GameState::TopDown), (setup_camera, setup_player))
-        .add_systems(OnEnter(TopDownState::Loading), setup_map)
+    app.add_systems(
+        OnEnter(GameState::TopDown),
+        (
+            setup_camera,
+            setup_player,
+            setup_first_launch.run_if(not(has_progress_flag(ProgressFlag::FirstLaunch))),
+        )
+            .chain(),
+    )
+    .add_systems(
+        OnExit(GameState::TopDown),
+        (despawn_screen::<OnTopDown>, reset_map_info),
+    );
+
+    app.add_systems(OnEnter(TopDownState::Loading), setup_map)
         .add_systems(
             Update,
             wait_for_ready.run_if(in_state(TopDownState::Loading)),
-        )
-        .add_systems(
-            OnEnter(TopDownState::Ready),
-            (fade_from_whatever, save_progress_to_disk, enable_movement),
-        )
+        );
+
+    app.add_systems(OnEnter(TopDownState::FirstLaunch), fade_from_white)
         .add_systems(
             Update,
-            (
-                camera_system,
-                update_near_interactables,
-                update_player_submerged,
-                update_player_z,
-                player_hop.run_if(not(player_submerged)),
-                player_swim.run_if(player_submerged),
-                get_topdown_interactions
-                    .pipe(play_interactions)
-                    .run_if(in_state(InteractionState::None).and(just_pressed_interact)),
-            )
-                .run_if(in_state(TopDownState::Ready).and(in_state(MovementEnabled))),
+            wait_first_launch.run_if(in_state(TopDownState::FirstLaunch)),
+        );
+
+    app.add_systems(
+        OnEnter(TopDownState::Ready),
+        (
+            fade_from_whatever,
+            save_progress_to_disk,
+            audio_fade_out::<Music>,
+            enable_movement,
+        ),
+    )
+    .add_systems(
+        Update,
+        (
+            camera_system,
+            update_near_interactables,
+            update_player_submerged,
+            update_player_z,
+            player_hop.run_if(not(player_submerged)),
+            player_swim.run_if(player_submerged),
+            get_topdown_interactions
+                .pipe(play_interactions)
+                .run_if(in_state(InteractionState::None).and(just_pressed_interact)),
         )
-        .add_systems(OnEnter(TopDownState::Warping), fade_to_black)
+            .run_if(in_state(TopDownState::Ready).and(in_state(MovementEnabled))),
+    );
+
+    app.add_systems(OnEnter(TopDownState::Warping), fade_to_black)
         .add_systems(
             Update,
             warp_player.run_if(in_state(TopDownState::Warping).and(on_event::<FadeIn>)),
-        )
-        .add_systems(
-            OnExit(GameState::TopDown),
-            (despawn_screen::<OnTopDown>, reset_map_info),
-        )
-        .add_observer(initialize_map_info)
+        );
+        
+    app.add_observer(initialize_map_info)
         .add_sub_state::<TopDownState>()
         .init_resource::<MapInfo>()
         .init_resource::<TopdownMapHandles>()
@@ -77,9 +106,12 @@ fn setup_camera(mut commands: Commands, progress: Res<Progress>) {
     use crate::auto_scaling::AspectRatio;
     use bevy::render::camera::ScalingMode;
 
+    info!("Spawning TopDown Camera");
+
     commands.spawn((
         OnTopDown,
         WorldCamera,
+        Name::new("TopDown Camera"),
         Camera2d,
         Camera {
             order: 0,
@@ -102,10 +134,18 @@ fn setup_camera(mut commands: Commands, progress: Res<Progress>) {
     ));
 }
 
-fn setup_player(mut commands: Commands, asset_server: Res<AssetServer>, progress: Res<Progress>) {
-    let player_sprites: Handle<Image> = asset_server.load("sprites/bucko_bounce.png");
+fn setup_player(
+    mut commands: Commands,
+    mut asset_tracker: ResMut<AssetTracker>,
+    asset_server: Res<AssetServer>,
+    progress: Res<Progress>,
+) {
+    info!("Spawning TopDown Player");
+
+    let player_sprites = asset_server.load("sprites/bucko_bounce.png");
+    asset_tracker.push(player_sprites.clone_weak().untyped());
     let layout = TextureAtlasLayout::from_grid(UVec2::splat(32), 8, 3, None, None);
-    let texture_atlas_layout = asset_server.add(layout);
+    let layout = asset_server.add(layout);
 
     commands
         .spawn((
@@ -116,13 +156,7 @@ fn setup_player(mut commands: Commands, asset_server: Res<AssetServer>, progress
             Transform::from_translation(progress.position.extend(0.0)),
             Visibility::default(),
             //
-            Sprite::from_atlas_image(
-                player_sprites,
-                TextureAtlas {
-                    layout: texture_atlas_layout,
-                    index:  0,
-                },
-            ),
+            Sprite::from_atlas_image(player_sprites, TextureAtlas { layout, index: 0 }),
             HopState::Idle,
             Submerged::default(),
             SpriteAnimation::set_frame(0),
@@ -139,21 +173,90 @@ fn setup_player(mut commands: Commands, asset_server: Res<AssetServer>, progress
         .observe(update_player_animations);
 }
 
+#[derive(Debug, Component)]
+struct FirstLaunch;
+
+fn setup_first_launch(
+    mut commands: Commands,
+    mut asset_tracker: ResMut<AssetTracker>,
+    asset_server: Res<AssetServer>,
+    camera: Single<(Entity, &Name, &Transform), With<WorldCamera>>,
+) {
+    info!("Spawning First Launch elements");
+
+    let (camera, camera_name, camera_transform) = camera.into_inner();
+    let camera_out = camera_transform.translation;
+    let camera_in = camera_out + Vec3::Y * 128.0;
+    let camera_id = AnimationTargetId::from_name(camera_name);
+
+    let (graph, node) = AnimationGraph::from_clip(asset_server.add({
+        let key_frames = [0.0, 4.0, 8.0, 16.0, 20.0];
+        let positions = [camera_out, camera_out, camera_in, camera_in, camera_out];
+        let curve = AnimatableKeyframeCurve::new(key_frames.into_iter().zip(positions)).unwrap();
+
+        let mut clip = AnimationClip::default();
+        clip.add_curve_to_target(
+            camera_id,
+            AnimatableCurve::new(animated_field!(Transform::translation), curve),
+        );
+        clip
+    }));
+    let graph_handle = asset_server.add(graph);
+    let mut animator = AnimationPlayer::default();
+    animator.play(node);
+
+    let title = asset_server.load("title.png");
+    asset_tracker.push(title.clone_weak().untyped());
+
+    let first_launch = commands
+        .spawn((
+            FirstLaunch,
+            Name::new("First Launch"),
+            AnimationGraphHandle(graph_handle),
+            animator,
+            Sprite {
+                image: title,
+                custom_size: Some(Vec2::splat(512.0)),
+                ..Default::default()
+            },
+            Transform::from_xyz(832.0, 1200.0, 1.0),
+            Visibility::default(),
+        ))
+        .id();
+
+    commands.entity(camera).insert(AnimationTarget {
+        id:     camera_id,
+        player: first_launch,
+    });
+}
+
+fn wait_first_launch(
+    first_launch: Single<(Entity, &AnimationPlayer), With<FirstLaunch>>,
+    mut progress: ResMut<Progress>,
+    mut commands: Commands,
+) {
+    let (first_launch, animator) = first_launch.into_inner();
+    if animator.all_finished() {
+        progress.insert(ProgressFlag::FirstLaunch);
+        commands.entity(first_launch).despawn();
+        commands.set_state(TopDownState::Ready);
+    }
+}
+
 fn setup_map(
     mut commands: Commands,
-    previous_map: Query<Entity, With<TiledMapMarker>>,
+    map_info: Res<MapInfo>,
     topdown_maps: Res<TopdownMapHandles>,
     progress: ResMut<Progress>,
 ) {
-    if let Ok(entity) = previous_map.single() {
-        commands.entity(entity).despawn();
+    if let Some(previous_map) = map_info.entity {
+        commands.entity(previous_map).despawn();
         commands.remove_resource::<Warp>();
     };
-    
-    let current_tiled_map = topdown_maps[progress.map].clone_weak();
+
+    let current_tiled_map = topdown_maps.get(progress.map);
     commands
-        .spawn(TiledMapHandle(current_tiled_map))
-        .insert(OnTopDown)
+        .spawn((OnTopDown, TiledMapHandle(current_tiled_map)))
         .observe(setup_collider_bodies)
         .observe(setup_interactables);
 }
@@ -162,7 +265,6 @@ fn setup_map(
 struct MapInfo {
     ready: bool,
 
-    // index: TopdownMapIndex,
     rect:         Rect,
     tilemap_size: TilemapSize,
 
@@ -248,9 +350,18 @@ fn setup_collider_bodies(
     commands.entity(trigger.entity).insert(RigidBody::Static);
 }
 
-fn wait_for_ready(map_info: Res<MapInfo>, mut topdown_state: ResMut<NextState<TopDownState>>) {
-    if map_info.ready {
-        topdown_state.set(TopDownState::Ready);
+fn wait_for_ready(
+    map_info: Res<MapInfo>,
+    progress: Res<Progress>,
+    asset_server: Res<AssetServer>,
+    mut asset_tracker: ResMut<AssetTracker>,
+    mut topdown_state: ResMut<NextState<TopDownState>>,
+) {
+    if map_info.ready && asset_tracker.is_ready(asset_server) {
+        match progress.contains(&ProgressFlag::FirstLaunch) {
+            true => topdown_state.set(TopDownState::Ready),
+            false => topdown_state.set(TopDownState::FirstLaunch),
+        }
     }
 }
 
@@ -270,14 +381,13 @@ pub enum TopdownMapIndex {
     Beach,
 }
 
-#[derive(Debug, Deref, Resource)]
+#[derive(Debug, Resource)]
 struct TopdownMapHandles([Handle<TiledMap>; TOTAL_TOPDOWN_MAPS]);
 
-impl std::ops::Index<TopdownMapIndex> for [Handle<TiledMap>] {
-    type Output = Handle<TiledMap>;
-
-    fn index(&self, index: TopdownMapIndex) -> &Self::Output {
-        &self[index as usize]
+impl TopdownMapHandles {
+    fn get(&self, index: TopdownMapIndex) -> Handle<TiledMap> {
+        // SAFETY: ['TopDownMapIndex'] varient count MUST match ['TOTAL_TOPDOWN_MAPS']
+        unsafe { self.0.get_unchecked(index as usize).clone_weak() }
     }
 }
 
@@ -479,8 +589,7 @@ fn update_player_submerged(
 ) {
     let (transform, mut submerged) = player.into_inner();
 
-    let Some(player_tile_pos) = get_tile_pos(transform.translation, &map_info.tilemap_size)
-    else {
+    let Some(player_tile_pos) = get_tile_pos(transform.translation, &map_info.tilemap_size) else {
         debug_once!("Player outside map");
         return;
     };

@@ -41,7 +41,7 @@ pub fn egg_plugin(app: &mut App) {
         OnExit(GameState::Egg),
         (
             despawn_screen::<OnEggScene>,
-            fade_out_ambience,
+            audio_fade_out::<Ambience>,
             cursor_ungrab,
         ),
     )
