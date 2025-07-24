@@ -5,7 +5,7 @@ use crate::{RENDER_LAYER_OVERLAY, WINDOW_HEIGHT, WINDOW_WIDTH};
 
 pub fn effects_plugin(app: &mut App) {
     app.add_systems(Startup, (spawn_cinematic_bars, spawn_fades))
-        .add_systems(Update, update_fade)
+        // .add_systems(Update, update_fade)
         .add_event::<FadeIn>()
         .add_event::<FadeOut>()
         .add_event::<CinematicBarsIn>()
@@ -14,8 +14,8 @@ pub fn effects_plugin(app: &mut App) {
 
 #[derive(Debug, Component)]
 pub struct EffectsNodes {
-    in_node:  AnimationNodeIndex,
-    out_node: AnimationNodeIndex,
+    node_in:  AnimationNodeIndex,
+    node_out: AnimationNodeIndex,
 }
 
 #[derive(Debug, Component)]
@@ -30,9 +30,43 @@ pub struct FadeIn;
 #[derive(Debug, Clone, Copy, Event)]
 pub struct FadeOut;
 
-#[derive(Debug, Clone, Component, Deref, DerefMut, Reflect)]
-#[reflect(Component)]
-pub struct FadeOpacity(f32);
+#[derive(Debug, Clone)]
+pub struct SpriteAlphaProperty;
+
+impl AnimatableProperty for SpriteAlphaProperty {
+    type Property = f32;
+
+    fn evaluator_id(&self) -> EvaluatorId {
+        EvaluatorId::Type(std::any::TypeId::of::<Self>())
+    }
+
+    fn get_mut<'a>(
+        &self,
+        entity: &'a mut AnimationEntityMut,
+    ) -> Result<&'a mut Self::Property, AnimationEvaluationError> {
+        use std::any::TypeId;
+
+        let sprite = entity
+            .get_mut::<Sprite>()
+            .ok_or(AnimationEvaluationError::ComponentNotPresent(TypeId::of::<
+                Sprite,
+            >(
+            )))?
+            .into_inner();
+        match sprite.color {
+            Color::Srgba(Srgba {
+                red: _,
+                green: _,
+                blue: _,
+                ref mut alpha,
+            }) => Ok(alpha),
+            _ => Err(AnimationEvaluationError::PropertyNotPresent(TypeId::of::<
+                Srgba,
+            >(
+            ))),
+        }
+    }
+}
 
 const FADE_DURATION: f32 = 2.0; // seconds
 
@@ -51,7 +85,7 @@ fn spawn_fades(mut commands: Commands, asset_server: Res<AssetServer>) {
             fade_black_in_clip.add_curve_to_target(
                 fade_black_target_id,
                 AnimatableCurve::new(
-                    animated_field!(FadeOpacity::0),
+                    SpriteAlphaProperty,
                     EasingCurve::new(0.0, 1.0, EaseFunction::Linear)
                         .reparametrize_linear(domain)
                         .unwrap(),
@@ -67,7 +101,7 @@ fn spawn_fades(mut commands: Commands, asset_server: Res<AssetServer>) {
             fade_black_out_clip.add_curve_to_target(
                 fade_black_target_id,
                 AnimatableCurve::new(
-                    animated_field!(FadeOpacity::0),
+                    SpriteAlphaProperty,
                     EasingCurve::new(1.0, 0.0, EaseFunction::Linear)
                         .reparametrize_linear(domain)
                         .unwrap(),
@@ -85,7 +119,7 @@ fn spawn_fades(mut commands: Commands, asset_server: Res<AssetServer>) {
             fade_white_in_clip.add_curve_to_target(
                 fade_white_target_id,
                 AnimatableCurve::new(
-                    animated_field!(FadeOpacity::0),
+                    SpriteAlphaProperty,
                     EasingCurve::new(0.0, 1.0, EaseFunction::Linear)
                         .reparametrize_linear(domain)
                         .unwrap(),
@@ -101,7 +135,7 @@ fn spawn_fades(mut commands: Commands, asset_server: Res<AssetServer>) {
             fade_white_out_clip.add_curve_to_target(
                 fade_white_target_id,
                 AnimatableCurve::new(
-                    animated_field!(FadeOpacity::0),
+                    SpriteAlphaProperty,
                     EasingCurve::new(1.0, 0.0, EaseFunction::Linear)
                         .reparametrize_linear(domain)
                         .unwrap(),
@@ -124,7 +158,6 @@ fn spawn_fades(mut commands: Commands, asset_server: Res<AssetServer>) {
         FadeBlack,
         fade_black_name,
         Sprite::from_color(BLACK.with_alpha(0.0), vec2(WINDOW_WIDTH, WINDOW_HEIGHT)),
-        FadeOpacity(0.0),
         AnimationPlayer::default(),
         AnimationGraphHandle(fade_black_graph_handle),
         AnimationTarget {
@@ -132,8 +165,8 @@ fn spawn_fades(mut commands: Commands, asset_server: Res<AssetServer>) {
             player: fade_black_entity,
         },
         EffectsNodes {
-            in_node:  fade_black_nodes[0],
-            out_node: fade_black_nodes[1],
+            node_in:  fade_black_nodes[0],
+            node_out: fade_black_nodes[1],
         },
         Transform::from_translation(Vec3::ZERO.with_z(Z_EFFECTS)),
         RENDER_LAYER_OVERLAY,
@@ -142,7 +175,6 @@ fn spawn_fades(mut commands: Commands, asset_server: Res<AssetServer>) {
         FadeWhite,
         fade_white_name,
         Sprite::from_color(WHITE.with_alpha(0.0), vec2(WINDOW_WIDTH, WINDOW_HEIGHT)),
-        FadeOpacity(0.0),
         AnimationPlayer::default(),
         AnimationGraphHandle(fade_white_graph_handle),
         AnimationTarget {
@@ -150,49 +182,41 @@ fn spawn_fades(mut commands: Commands, asset_server: Res<AssetServer>) {
             player: fade_white_entity,
         },
         EffectsNodes {
-            in_node:  fade_white_nodes[0],
-            out_node: fade_white_nodes[1],
+            node_in:  fade_white_nodes[0],
+            node_out: fade_white_nodes[1],
         },
         Transform::from_translation(Vec3::ZERO.with_z(Z_EFFECTS)),
         RENDER_LAYER_OVERLAY,
     ));
 }
 
-fn update_fade(mut q_fade: Query<(&mut Sprite, &FadeOpacity), Changed<FadeOpacity>>) {
-    q_fade
-        .iter_mut()
-        .for_each(|(mut sprite, FadeOpacity(alpha))| {
-            sprite.color = sprite.color.with_alpha(*alpha);
-        });
-}
-
 pub fn fade_to_black(fade_black: Single<(&mut AnimationPlayer, &EffectsNodes), With<FadeBlack>>) {
     let (mut player, nodes) = fade_black.into_inner();
-    player.stop_all().play(nodes.in_node);
+    player.stop_all().play(nodes.node_in);
 }
 
 pub fn fade_from_black(fade_black: Single<(&mut AnimationPlayer, &EffectsNodes), With<FadeBlack>>) {
     let (mut player, nodes) = fade_black.into_inner();
-    player.stop_all().play(nodes.out_node);
+    player.stop_all().play(nodes.node_out);
 }
 
 pub fn fade_to_white(fade_white: Single<(&mut AnimationPlayer, &EffectsNodes), With<FadeWhite>>) {
     let (mut player, nodes) = fade_white.into_inner();
-    player.stop_all().play(nodes.in_node);
+    player.stop_all().play(nodes.node_in);
 }
 
 pub fn fade_from_white(fade_white: Single<(&mut AnimationPlayer, &EffectsNodes), With<FadeWhite>>) {
     let (mut player, nodes) = fade_white.into_inner();
-    player.stop_all().play(nodes.out_node);
+    player.stop_all().play(nodes.node_out);
 }
 
 type BothFades = Or<(With<FadeBlack>, With<FadeWhite>)>;
 pub fn fade_from_whatever(mut q_fades: Query<(&mut AnimationPlayer, &EffectsNodes), BothFades>) {
     q_fades
         .iter_mut()
-        .filter(|(player, nodes)| player.is_playing_animation(nodes.in_node))
+        .filter(|(player, nodes)| player.is_playing_animation(nodes.node_in))
         .for_each(|(mut player, node)| {
-            player.stop_all().play(node.out_node);
+            player.stop_all().play(node.node_out);
         });
 }
 
@@ -298,8 +322,8 @@ fn spawn_cinematic_bars(mut commands: Commands, asset_server: Res<AssetServer>) 
             AnimationPlayer::default(),
             AnimationGraphHandle(asset_server.add(graph)),
             EffectsNodes {
-                in_node:  nodes[0],
-                out_node: nodes[1],
+                node_in:  nodes[0],
+                node_out: nodes[1],
             },
             Transform::default(),
             Visibility::default(),
@@ -338,12 +362,12 @@ pub fn cinematic_bars_in(
     cinematic_bars: Single<(&mut AnimationPlayer, &EffectsNodes), With<CinematicBars>>,
 ) {
     let (mut animation_player, nodes) = cinematic_bars.into_inner();
-    animation_player.stop_all().play(nodes.in_node);
+    animation_player.stop_all().play(nodes.node_in);
 }
 
 pub fn cinematic_bars_out(
     cinematic_bars: Single<(&mut AnimationPlayer, &EffectsNodes), With<CinematicBars>>,
 ) {
     let (mut player, nodes) = cinematic_bars.into_inner();
-    player.stop_all().play(nodes.out_node);
+    player.stop_all().play(nodes.node_out);
 }
