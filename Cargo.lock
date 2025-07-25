@@ -3429,7 +3429,7 @@ dependencies = [
 
 [[package]]
 name = "monkebucko"
-version = "0.7.4"
+version = "0.7.12"
 dependencies = [
  "avian2d",
  "bevy",
