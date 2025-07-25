@@ -146,7 +146,12 @@ impl AssetTracker {
             false
         } else {
             self.count += 1;
-            self.count == Self::CONFIRMATION_FRAMES
+            if self.count == Self::CONFIRMATION_FRAMES {
+                self.count = 0;
+                true
+            } else {
+                false
+            }
         }
     }
 
@@ -234,7 +239,7 @@ fn get_user_input(
     user_input.interact = interact_state;
 }
 
-fn just_pressed_escape(key_input: Res<ButtonInput<KeyCode>>) -> bool{
+fn just_pressed_escape(key_input: Res<ButtonInput<KeyCode>>) -> bool {
     key_input.just_pressed(KeyCode::Escape)
 }
 
