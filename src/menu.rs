@@ -3,8 +3,8 @@ use bevy::{color::palettes::css::*, ecs::spawn::SpawnWith, prelude::*};
 use bevy_persistent::Persistent;
 
 use crate::{
-    game::effects::{fade_to_black, FadeIn},
-    progress::{Progress, ProgressStorage, SaveSlot},
+    game::effects::{FadeIn, fade_to_black},
+    progress::{Progress, ProgressStorage, SaveSlot, TimePlayedStart},
 };
 
 use super::{AppState, Settings, despawn_screen};
@@ -556,6 +556,7 @@ fn setup_progress(
     progress_storage: Res<Persistent<ProgressStorage>>,
     mut commands: Commands,
 ) {
+    use bevy::platform::time::Instant;
     if let Some(save_slot) = q_start.iter().find_map(|(interaction, save_slot)| {
         matches!(interaction, Interaction::Pressed).then_some(save_slot)
     }) {
@@ -565,6 +566,7 @@ fn setup_progress(
         };
         commands.insert_resource(progress);
         commands.insert_resource(*save_slot);
+        commands.insert_resource(TimePlayedStart(Instant::now()));
         commands.set_state(MenuState::Fading);
     }
 }

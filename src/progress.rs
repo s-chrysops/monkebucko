@@ -33,9 +33,16 @@ fn initialize_saves(mut commands: Commands) {
 
 pub fn save_progress_to_disk(
     save_slot: Res<SaveSlot>,
-    progress: Res<Progress>,
+    mut time_played_start: ResMut<TimePlayedStart>,
+    mut progress: ResMut<Progress>,
     mut storage: ResMut<Persistent<ProgressStorage>>,
 ) {
+    use bevy::platform::time::Instant;
+    let elapsed = time_played_start.elapsed();
+    time_played_start.0 = Instant::now();
+
+    progress.time_played += elapsed;
+
     storage
         .update(|saves| {
             *saves.get_slot_mut(*save_slot) = Some(progress.clone());
@@ -46,6 +53,9 @@ pub fn save_progress_to_disk(
 pub fn has_progress_flag(flag: ProgressFlag) -> impl FnMut(Res<Progress>) -> bool + Clone {
     move |progress: Res<Progress>| progress.contains(&flag)
 }
+
+#[derive(Debug, Deref, Resource)]
+pub struct TimePlayedStart(pub bevy::platform::time::Instant);
 
 #[derive(Debug, Clone, Copy, Component, Resource, Reflect)]
 #[reflect(Component, Resource)]
