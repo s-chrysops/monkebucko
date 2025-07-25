@@ -108,7 +108,7 @@ fn menu_action(
     }
 }
 
-fn main_menu_setup(mut commands: Commands, _asset_server: Res<AssetServer>) {
+fn main_menu_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let button_node = Node {
         width: Val::Px(300.0),
         height: Val::Px(65.0),
@@ -122,6 +122,8 @@ fn main_menu_setup(mut commands: Commands, _asset_server: Res<AssetServer>) {
         font_size: 32.0,
         ..default()
     };
+
+    let title = asset_server.load("title.png");
 
     let root_node = commands
         .spawn((
@@ -147,14 +149,14 @@ fn main_menu_setup(mut commands: Commands, _asset_server: Res<AssetServer>) {
                 ..default()
             },
             BackgroundColor(BLACK.into()),
-            children![
-                Text::new("monkebucko"),
-                TextFont {
-                    font_size: 64.0,
+            children![(
+                Node {
+                    aspect_ratio: Some(2.0),
+                    max_height: Val::Percent(100.0),
                     ..default()
                 },
-                TextColor(TEXT_COLOR),
-            ],
+                ImageNode::new(title)
+            )],
         ))
         .id();
 

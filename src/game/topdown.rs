@@ -238,7 +238,8 @@ fn setup_first_launch(
         Sprite {
             image: title,
             color: WHITE.with_alpha(0.0).into(),
-            ..Default::default()
+            custom_size: Some(vec2(512.0, 256.0)),
+            ..default()
         },
         AnimationTarget {
             id:     title_id,
