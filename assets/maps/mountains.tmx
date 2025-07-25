@@ -449,6 +449,9 @@
   </tile>
   <tile id="3">
    <image source="../tilesets/basic_assets/sign_1.png" width="26" height="32"/>
+   <objectgroup draworder="index" id="2">
+    <object id="1" x="7" y="0" width="12" height="28"/>
+   </objectgroup>
   </tile>
   <tile id="4">
    <image source="../tilesets/basic_assets/sign_2.png" width="30" height="33"/>

@@ -800,8 +800,8 @@ dependencies = [
 
 [[package]]
 name = "bevy_ecs_tiled"
-version = "0.7.1"
-source = "git+https://github.com/s-chrysops/bevy_ecs_tiled.git#460dc004f4fa309cac492092b37d1ca2f436929d"
+version = "0.7.4"
+source = "git+https://github.com/s-chrysops/bevy_ecs_tiled.git?branch=dev#d725a47e9f3a05fe11a76ccd88ffbde34c82b060"
 dependencies = [
  "avian2d",
  "bevy",

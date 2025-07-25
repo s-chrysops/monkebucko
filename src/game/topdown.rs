@@ -281,7 +281,7 @@ fn setup_map(
 
     let current_tiled_map = topdown_maps.get(progress.map);
     commands
-        .spawn((OnTopDown, TiledMapHandle(current_tiled_map)))
+        .spawn((OnTopDown, TiledMap(current_tiled_map)))
         .observe(setup_collider_bodies)
         .observe(setup_interactables);
 }
@@ -304,11 +304,11 @@ fn reset_map_info(mut map_info: ResMut<MapInfo>) {
 const Z_BETWEEN_LAYERS: f32 = 100.0;
 
 fn initialize_map_info(
-    trigger: Trigger<TiledMapCreated>,
-    a_tiled_maps: Res<Assets<TiledMap>>,
-    q_tiled_maps: Query<(Entity, &mut TiledMapStorage), With<TiledMapMarker>>,
-    q_tiled_layers: Query<(Entity, &Name), With<TiledMapTileLayerForTileset>>,
-    mut q_tiled_objects: Query<&mut Transform, With<TiledMapObject>>,
+    trigger: Trigger<TiledEvent<TilemapCreated>>,
+    a_tiled_maps: Res<Assets<TiledMapAsset>>,
+    map_storage: Single<&mut TiledMapStorage>,
+    q_tiled_layers: Query<(Entity, &Name), With<TiledLayer>>,
+    mut q_tiled_objects: Query<&mut Transform, With<TiledObject>>,
     mut map_info: ResMut<MapInfo>,
 ) {
     let Some(tiled_map) = trigger.event().get_map_asset(&a_tiled_maps) else {
@@ -316,12 +316,12 @@ fn initialize_map_info(
         return;
     };
 
-    let Ok((map_entity, map_storage)) = q_tiled_maps.get(trigger.entity) else {
-        warn!("Failed to load Tiled map storage");
-        return;
-    };
+    // let Ok(map_storage) = q_tiled_maps.get(trigger.get) else {
+    //     warn!("Failed to load Tiled map storage");
+    //     return;
+    // };
 
-    map_storage.objects.iter().for_each(|(_tiled_id, entity)| {
+    map_storage.objects().for_each(|(_tiled_id, entity)| {
         if let Ok(mut transform) = q_tiled_objects.get_mut(*entity) {
             // Objects higher up on the map will be given a greater negative z-offset
             let offset_y = transform.translation.y - tiled_map.rect.min.y;
@@ -334,19 +334,19 @@ fn initialize_map_info(
     map_info.rect = tiled_map.rect;
     map_info.tilemap_size = tiled_map.tilemap_size;
 
-    map_info.entity = Some(map_entity);
+    map_info.entity = trigger.get_map_entity();
     map_info.water_layer = q_tiled_layers.iter().find_map(|(entity, name)| {
         (name.as_str() == "TiledMapTileLayerForTileset(water, water)").then_some(entity)
     });
 }
 
 fn setup_interactables(
-    trigger: Trigger<TiledObjectCreated>,
+    trigger: Trigger<TiledEvent<ObjectCreated>>,
     // mut commands: Commands,
-    mut q_interactables: Query<(Entity, &EntityInteraction), With<TiledMapObject>>,
+    mut q_interactables: Query<(Entity, &EntityInteraction), With<TiledObject>>,
     mut dialogue_preloader: ResMut<DialoguePreload>,
 ) {
-    if let Ok((_entity, EntityInteraction::Dialogue(id))) = q_interactables.get_mut(trigger.entity)
+    if let Ok((_entity, EntityInteraction::Dialogue(id))) = q_interactables.get_mut(trigger.origin)
     {
         dialogue_preloader.push(*id);
         // commands
@@ -358,21 +358,21 @@ fn setup_interactables(
 }
 
 fn setup_collider_bodies(
-    trigger: Trigger<TiledColliderCreated>,
+    trigger: Trigger<TiledEvent<ColliderCreated>>,
     mut commands: Commands,
-    q_tiled_objects: Query<Option<&Warp>, With<TiledMapObject>>,
-    q_tiled_colliders: Query<&ChildOf, With<TiledColliderMarker>>,
+    q_tiled_objects: Query<Option<&Warp>, With<TiledObject>>,
+    q_tiled_colliders: Query<&ChildOf, With<TiledCollider>>,
 ) {
-    if let Ok(ChildOf(parent)) = q_tiled_colliders.get(trigger.entity) {
+    if let Ok(ChildOf(parent)) = q_tiled_colliders.get(trigger.origin) {
         if let Ok(Some(_warp)) = q_tiled_objects.get(*parent) {
             commands
-                .entity(trigger.entity)
+                .entity(trigger.origin)
                 .insert((Sensor, CollisionEventsEnabled))
                 .observe(trigger_warp);
         }
     }
 
-    commands.entity(trigger.entity).insert(RigidBody::Static);
+    commands.entity(trigger.origin).insert(RigidBody::Static);
 }
 
 fn wait_for_ready(
@@ -407,10 +407,10 @@ pub enum TopdownMapIndex {
 }
 
 #[derive(Debug, Resource)]
-struct TopdownMapHandles([Handle<TiledMap>; TOTAL_TOPDOWN_MAPS]);
+struct TopdownMapHandles([Handle<TiledMapAsset>; TOTAL_TOPDOWN_MAPS]);
 
 impl TopdownMapHandles {
-    fn get(&self, index: TopdownMapIndex) -> Handle<TiledMap> {
+    fn get(&self, index: TopdownMapIndex) -> Handle<TiledMapAsset> {
         // SAFETY: ['TopDownMapIndex'] varient count MUST match ['TOTAL_TOPDOWN_MAPS']
         unsafe { self.0.get_unchecked(index as usize).clone_weak() }
     }
@@ -428,9 +428,7 @@ impl FromWorld for TopdownMapHandles {
             "maps/beach.tmx",
         ];
 
-        TopdownMapHandles(
-            MAP_PATHS.map(|path| world.resource::<AssetServer>().load::<TiledMap>(path)),
-        )
+        TopdownMapHandles(MAP_PATHS.map(|path| world.resource::<AssetServer>().load(path)))
     }
 }
 
@@ -445,8 +443,8 @@ struct Warp {
 fn trigger_warp(
     trigger: Trigger<OnCollisionStart>,
     player: Single<Entity, With<Player>>,
-    q_tiled_colliders: Query<&ChildOf, With<TiledColliderMarker>>,
-    q_tiled_objects: Query<&Warp, With<TiledMapObject>>,
+    q_tiled_colliders: Query<&ChildOf, With<TiledCollider>>,
+    q_tiled_objects: Query<&Warp, With<TiledObject>>,
     mut commands: Commands,
 ) {
     if trigger.collider != *player {
@@ -609,8 +607,8 @@ struct SplashUpdate;
 fn update_player_submerged(
     player: Single<(&Transform, &mut Submerged), (With<Player>, Changed<Transform>)>,
     map_info: Res<MapInfo>,
-    q_tiled_layers: Query<&TileStorage, With<TiledMapTileLayerForTileset>>,
-    q_water_tiles: Query<&WaterTile, With<TiledMapTile>>,
+    q_tiled_layers: Query<&TileStorage, With<TiledLayer>>,
+    q_water_tiles: Query<&WaterTile, With<TiledTile>>,
 ) {
     let (transform, mut submerged) = player.into_inner();
 

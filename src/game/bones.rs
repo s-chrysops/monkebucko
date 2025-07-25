@@ -152,11 +152,11 @@ fn setup_map(
     );
 
     commands
-        .spawn((TiledMapHandle(bones_map_handle), TilemapAnchor::BottomLeft))
+        .spawn((TiledMap(bones_map_handle), TilemapAnchor::BottomLeft))
         .insert(OnBones)
         .observe(
-            move |trigger: Trigger<TiledColliderCreated>, mut commands: Commands| {
-                commands.entity(trigger.entity).insert((
+            move |trigger: Trigger<TiledEvent<ColliderCreated>>, mut commands: Commands| {
+                commands.entity(trigger.origin).insert((
                     RigidBody::Static,
                     world_collision_layers,
                     Friction::ZERO,
@@ -440,7 +440,7 @@ fn player_damage(
 
 fn update_buckos_grounded(
     collisions: Collisions,
-    ground_bodies: Query<(), With<TiledColliderMarker>>,
+    ground_bodies: Query<(), With<TiledCollider>>,
     mut buckos: Query<(Entity, &mut Grounded)>,
 ) {
     buckos.iter_mut().for_each(|(entity, mut grounded)| {
@@ -628,7 +628,7 @@ fn enemy_chase(
 }
 
 fn enemy_jump(
-    ground_bodies: Query<(), With<TiledColliderMarker>>,
+    ground_bodies: Query<(), With<TiledCollider>>,
     mut q_enemies: Query<(&mut UckoState, &RayHits, &mut LinearVelocity), With<Ucko>>,
 ) {
     const JUMP_IMPULSE: Vec2 = vec2(48.0, 256.0);

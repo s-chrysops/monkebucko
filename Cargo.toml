@@ -15,7 +15,7 @@ thiserror = "2.0.12"
 bevy_text_animation = "0.4.1"
 
 avian2d = "0.3.0"
-bevy_ecs_tiled = { git = "https://github.com/s-chrysops/bevy_ecs_tiled.git", features = ["avian", "user_properties"] }
+bevy_ecs_tiled = { git = "https://github.com/s-chrysops/bevy_ecs_tiled.git", branch = "dev", features = ["avian", "user_properties"] }
 bevy_ecs_tilemap = "0.16"
 
 nohash-hasher = "0.2.0"
@@ -24,6 +24,7 @@ rand_core = "0.9.3"
 bevy_rand = { version = "0.11", features = ["wyrand"] }
 
 bevy-inspector-egui = { version = "0.31", optional = true }
+
 
 [profile.dev]
 opt-level = 1

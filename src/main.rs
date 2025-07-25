@@ -5,10 +5,7 @@ use bevy::{
     render::{camera::CameraOutputMode, render_resource::*, view::RenderLayers},
     window::WindowResolution,
 };
-use bevy_ecs_tiled::{
-    TiledMapPlugin, TiledMapPluginConfig,
-    prelude::{TiledPhysicsAvianBackend, TiledPhysicsPlugin},
-};
+use bevy_ecs_tiled::prelude::*;
 use bevy_persistent::prelude::*;
 use bevy_rand::{plugin::EntropyPlugin, prelude::WyRand};
 use bevy_text_animation::TextAnimatorPlugin;
@@ -82,10 +79,10 @@ fn main() {
     ));
 
     #[cfg(feature = "export-types")]
-    app.add_plugins(TiledMapPlugin(TiledMapPluginConfig::default()));
+    app.add_plugins(TiledPlugin(TiledPluginConfig::default()));
 
     #[cfg(not(feature = "export-types"))]
-    app.add_plugins(TiledMapPlugin(TiledMapPluginConfig {
+    app.add_plugins(TiledPlugin(TiledPluginConfig {
         tiled_types_export_file: None,
     }));
 
