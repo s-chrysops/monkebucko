@@ -109,6 +109,7 @@ fn main() {
     .init_asset_loader::<BlobAssetLoader>()
     .init_state::<AppState>()
     .add_systems(Startup, (setup_overlay_camera, initialize_settings))
+    .init_resource::<StandardFont>()
     .insert_resource(avian2d::prelude::Gravity::ZERO)
     .insert_resource(MeshPickingSettings {
         require_markers:     true,
@@ -149,6 +150,16 @@ fn setup_overlay_camera(mut commands: Commands) {
         // Msaa::Off,
         RENDER_LAYER_OVERLAY,
     ));
+}
+
+#[derive(Debug, Deref, Resource)]
+struct StandardFont(Handle<Font>);
+
+impl FromWorld for StandardFont {
+    fn from_world(world: &mut World) -> Self {
+        let font = world.resource::<AssetServer>().load("Silkscreen.ttf");
+        StandardFont(font)
+    }
 }
 
 #[derive(Debug, Resource, Serialize, Deserialize)]

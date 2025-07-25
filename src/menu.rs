@@ -2,12 +2,7 @@
 use bevy::{color::palettes::css::*, ecs::spawn::SpawnWith, prelude::*};
 use bevy_persistent::Persistent;
 
-use crate::{
-    game::effects::{FadeIn, fade_to_black},
-    progress::{Progress, ProgressStorage, SaveSlot, TimePlayedStart},
-};
-
-use super::{AppState, Settings, despawn_screen};
+use crate::{AppState, Settings, StandardFont, despawn_screen, game::effects::*, progress::*};
 
 const TEXT_COLOR: Color = Color::Srgba(WHITE_SMOKE);
 
@@ -39,12 +34,11 @@ struct OnData;
 struct SelectedOption;
 
 #[derive(Component)]
-enum MenuButtonAction {
+enum NavigationAction {
     Play,
     Settings,
-    SaveSettings,
-    BackToMainMenu,
     Quit,
+    MainMenu,
 }
 
 #[derive(Debug, Clone, Copy, Component, PartialEq)]
@@ -58,75 +52,58 @@ struct RadioValue(u32);
 
 pub fn menu_plugin(app: &mut App) {
     app.add_sub_state::<MenuState>()
-        .add_systems(OnEnter(MenuState::Main), main_menu_setup)
+        .add_systems(OnEnter(MenuState::Main), setup_main_menu)
         .add_systems(OnExit(MenuState::Main), despawn_screen::<OnMainMenu>)
-        .add_systems(OnEnter(MenuState::Settings), settings_menu_setup)
+        .add_systems(OnEnter(MenuState::Settings), setup_settings)
         .add_systems(OnExit(MenuState::Settings), despawn_screen::<OnSettings>)
         .add_systems(OnEnter(MenuState::Data), setup_data_menu)
         .add_systems(OnExit(MenuState::Data), despawn_screen::<OnData>)
         .add_systems(
             Update,
-            (menu_action, button_system).run_if(in_state(AppState::Menu)),
+            (navigation_action, update_button_color).run_if(in_state(AppState::Menu)),
         )
         .add_systems(
             Update,
-            radio_settings_system.run_if(in_state(MenuState::Settings)),
+            (update_radio_buttons, save_settings).run_if(in_state(MenuState::Settings)),
         )
         .add_systems(Update, setup_progress.run_if(in_state(MenuState::Data)))
         .add_systems(OnEnter(MenuState::Fading), fade_to_black)
         .add_systems(Update, start_game.run_if(on_event::<FadeIn>));
 }
 
-fn menu_action(
+fn navigation_action(
     interaction_query: Query<
-        (&Interaction, &MenuButtonAction),
+        (&Interaction, &NavigationAction),
         (Changed<Interaction>, With<Button>),
     >,
     mut app_exit_events: EventWriter<AppExit>,
     mut menu_state: ResMut<NextState<MenuState>>,
-    // mut game_state: ResMut<NextState<AppState>>,
-    mut commands: Commands,
 ) {
-    for (interaction, menu_button_action) in &interaction_query {
-        if *interaction != Interaction::Pressed {
-            continue;
-        }
-        match menu_button_action {
-            MenuButtonAction::Quit => {
+    interaction_query
+        .into_iter()
+        .filter_map(|(interaction, navigation_action)| {
+            matches!(interaction, Interaction::Pressed).then_some(navigation_action)
+        })
+        .for_each(|navigation_action| match navigation_action {
+            NavigationAction::Play => menu_state.set(MenuState::Data),
+            NavigationAction::Settings => menu_state.set(MenuState::Settings),
+            NavigationAction::Quit => {
                 app_exit_events.write(AppExit::Success);
             }
-            MenuButtonAction::Play => {
-                menu_state.set(MenuState::Data);
-            }
-            MenuButtonAction::Settings => menu_state.set(MenuState::Settings),
-            MenuButtonAction::SaveSettings => {
-                commands.run_system_cached(save_settings);
-                menu_state.set(MenuState::Main);
-            }
-            MenuButtonAction::BackToMainMenu => menu_state.set(MenuState::Main),
-        }
-    }
+            NavigationAction::MainMenu => menu_state.set(MenuState::Main),
+        });
 }
 
-fn main_menu_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
-    let button_node = Node {
-        width: Val::Px(300.0),
-        height: Val::Px(65.0),
-        margin: UiRect::all(Val::Px(20.0)),
-        justify_content: JustifyContent::Center,
-        align_items: AlignItems::Center,
-        ..default()
-    };
-
-    let button_text_font = TextFont {
-        font_size: 32.0,
-        ..default()
-    };
-
+fn setup_main_menu(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    font: Res<StandardFont>,
+) {
     let title = asset_server.load("title.png");
 
-    let root_node = commands
+    let main_menu_root = commands
         .spawn((
+            Name::new("Main Menu"),
             Node {
                 width: Val::Percent(100.0),
                 height: Val::Percent(100.0),
@@ -139,94 +116,112 @@ fn main_menu_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         ))
         .id();
 
-    let title = commands
-        .spawn((
+    commands.spawn((
+        Name::new("Title"),
+        ChildOf(main_menu_root),
+        Node {
+            width: Val::Percent(100.0),
+            height: Val::Percent(48.0),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        },
+        BackgroundColor(BLACK.into()),
+        children![(
             Node {
-                width: Val::Percent(100.0),
-                height: Val::Percent(50.0),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
+                aspect_ratio: Some(2.0),
+                max_height: Val::Percent(100.0),
                 ..default()
             },
-            BackgroundColor(BLACK.into()),
-            children![(
-                Node {
-                    aspect_ratio: Some(2.0),
-                    max_height: Val::Percent(100.0),
-                    ..default()
-                },
-                ImageNode::new(title)
-            )],
-        ))
-        .id();
+            ImageNode::new(title)
+        )],
+    ));
 
-    let menu_buttons = commands
-        .spawn((
-            Node {
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            BackgroundColor(SLATE_GREY.into()),
-            children![
-                // Display three buttons for each action available from the main menu:
-                // - new game
-                // - settings
-                // - quit
-                (
-                    Button,
-                    button_node.clone(),
-                    BackgroundColor(NORMAL_BUTTON),
-                    MenuButtonAction::Play,
-                    children![
-                        // (ImageNode::new(right_icon), button_icon_node.clone()),
-                        (
-                            Text::new("Play"),
-                            button_text_font.clone(),
-                            TextColor(TEXT_COLOR),
-                        ),
-                    ]
-                ),
-                (
-                    Button,
-                    button_node.clone(),
-                    BackgroundColor(NORMAL_BUTTON),
-                    MenuButtonAction::Settings,
-                    children![
-                        // (ImageNode::new(wrench_icon), button_icon_node.clone()),
-                        (
-                            Text::new("Settings"),
-                            button_text_font.clone(),
-                            TextColor(TEXT_COLOR),
-                        ),
-                    ]
-                ),
-                (
-                    Button,
-                    button_node,
-                    BackgroundColor(NORMAL_BUTTON),
-                    MenuButtonAction::Quit,
-                    children![
-                        // (ImageNode::new(exit_icon), button_icon_node),
-                        (Text::new("Quit"), button_text_font, TextColor(TEXT_COLOR),),
-                    ]
-                ),
-            ],
-        ))
-        .id();
+    let button_node = Node {
+        width: Val::Percent(32.0),
+        height: Val::Percent(32.0),
+        margin: UiRect::all(Val::Px(8.0)),
+        justify_content: JustifyContent::Center,
+        align_items: AlignItems::Center,
+        ..default()
+    };
 
-    commands
-        .entity(root_node)
-        .add_children(&[title, menu_buttons]);
+    let button_text_font = TextFont {
+        font: font.clone_weak(),
+        font_size: 32.0,
+        font_smoothing: bevy::text::FontSmoothing::None,
+        ..default()
+    };
+
+    commands.spawn((
+        Name::new("Main Menu Buttons"),
+        ChildOf(main_menu_root),
+        Node {
+            width: Val::Percent(100.0),
+            height: Val::Percent(48.0),
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
+            ..default()
+        },
+        children![
+            // Display three buttons for each action available from the main menu:
+            // - new game
+            // - settings
+            // - quit
+            (
+                Button,
+                button_node.clone(),
+                BackgroundColor(NORMAL_BUTTON),
+                NavigationAction::Play,
+                children![
+                    // (ImageNode::new(right_icon), button_icon_node.clone()),
+                    (
+                        Text::new("Play"),
+                        button_text_font.clone(),
+                        TextColor(TEXT_COLOR),
+                    ),
+                ]
+            ),
+            (
+                Button,
+                button_node.clone(),
+                BackgroundColor(NORMAL_BUTTON),
+                NavigationAction::Settings,
+                children![
+                    // (ImageNode::new(wrench_icon), button_icon_node.clone()),
+                    (
+                        Text::new("Settings"),
+                        button_text_font.clone(),
+                        TextColor(TEXT_COLOR),
+                    ),
+                ]
+            ),
+            (
+                Button,
+                button_node,
+                BackgroundColor(NORMAL_BUTTON),
+                NavigationAction::Quit,
+                children![
+                    // (ImageNode::new(exit_icon), button_icon_node),
+                    (Text::new("Quit"), button_text_font, TextColor(TEXT_COLOR),),
+                ]
+            ),
+        ],
+    ));
 }
 
-fn settings_menu_setup(
+#[derive(Debug, Component)]
+struct SaveButton;
+
+fn setup_settings(
     mut commands: Commands,
     _asset_server: Res<AssetServer>,
+    font: Res<StandardFont>,
     settings: Res<Persistent<Settings>>,
 ) {
-    let root_node = commands
+    let settings_root = commands
         .spawn((
+            Name::new("Settings Menu"),
             Node {
                 width: Val::Percent(100.0),
                 height: Val::Percent(100.0),
@@ -270,150 +265,152 @@ fn settings_menu_setup(
     };
 
     let button_text_font = TextFont {
+        font: font.clone_weak(),
         font_size: 32.0,
         ..default()
     };
 
-    let key_bindings_node = commands
-        .spawn((
-            Node {
-                width: Val::Percent(80.0),
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
+    commands.spawn((
+        Name::new("Key Bindings"),
+        ChildOf(settings_root),
+        Node {
+            width: Val::Percent(80.0),
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+        BackgroundColor(SLATE_GREY.into()),
+        children![(
+            Text::new("Key Bindings"),
+            TextFont {
+                font: font.clone_weak(),
+                font_size: 48.0,
+                font_smoothing: bevy::text::FontSmoothing::None,
                 ..default()
             },
-            BackgroundColor(SLATE_GREY.into()),
-            children![(
-                Text::new("Key Bindings"),
+            TextColor(TEXT_COLOR),
+        )],
+    ));
+
+    commands.spawn((
+        Name::new("Music Volume"),
+        ChildOf(settings_root),
+        settings_node.clone(),
+        BackgroundColor(DARK_GREY.into()),
+        Children::spawn((
+            Spawn((
+                Label,
+                Text::new("Music"),
                 TextFont {
-                    font_size: 48.0,
+                    font: font.clone_weak(),
+                    font_size: 32.0,
+                    font_smoothing: bevy::text::FontSmoothing::None,
                     ..default()
                 },
                 TextColor(TEXT_COLOR),
-            )],
-        ))
-        .id();
-
-    let music_volume_node = commands
-        .spawn((
-            settings_node.clone(),
-            BackgroundColor(DARK_GREY.into()),
-            Children::spawn((
-                Spawn((
-                    Text::new("Music Volume"),
-                    TextFont {
-                        font_size: 32.0,
-                        ..default()
-                    },
-                    TextColor(TEXT_COLOR),
-                )),
-                SpawnWith(move |parent: &mut ChildSpawner| {
-                    (0..=10).for_each(|level| {
-                        let mut entity = parent.spawn((
-                            RadioSetting::Music,
-                            Button,
-                            Node {
-                                width: Val::Px(32.0),
-                                height: Val::Px(48.0),
-                                margin: UiRect::all(Val::Px(8.0)),
-                                ..default()
-                            },
-                            BackgroundColor(NORMAL_BUTTON),
-                            RadioValue(level),
-                        ));
-
-                        let volume = 0.1 * level as f32;
-                        if music_vol == volume {
-                            entity.insert(SelectedOption);
-                        }
-                    });
-                }),
             )),
-        ))
-        .id();
+            SpawnWith(move |parent: &mut ChildSpawner| {
+                (0..=10).for_each(|level| {
+                    let mut entity = parent.spawn((
+                        RadioSetting::Music,
+                        Button,
+                        Node {
+                            width: Val::Px(32.0),
+                            height: Val::Px(48.0),
+                            margin: UiRect::all(Val::Px(8.0)),
+                            ..default()
+                        },
+                        BackgroundColor(NORMAL_BUTTON),
+                        RadioValue(level),
+                    ));
 
-    let sound_volume_node = commands
-        .spawn((
-            settings_node.clone(),
-            BackgroundColor(DARK_GREY.into()),
-            Children::spawn((
-                Spawn((
-                    Text::new("Sound Volume"),
-                    TextFont {
-                        font_size: 32.0,
-                        ..default()
-                    },
-                    TextColor(TEXT_COLOR),
-                )),
-                SpawnWith(move |parent: &mut ChildSpawner| {
-                    (0..=10).for_each(|level| {
-                        let mut entity = parent.spawn((
-                            RadioSetting::Sound,
-                            Button,
-                            Node {
-                                width: Val::Px(32.0),
-                                height: Val::Px(48.0),
-                                margin: UiRect::all(Val::Px(8.0)),
-                                ..default()
-                            },
-                            BackgroundColor(NORMAL_BUTTON),
-                            RadioValue(level),
-                        ));
+                    let volume = 0.1 * level as f32;
+                    if music_vol == volume {
+                        entity.insert(SelectedOption);
+                    }
+                });
+            }),
+        )),
+    ));
 
-                        let volume = 0.1 * level as f32;
-                        if sound_vol == volume {
-                            entity.insert(SelectedOption);
-                        }
-                    });
-                }),
+    commands.spawn((
+        Name::new("Sound Volume"),
+        ChildOf(settings_root),
+        settings_node.clone(),
+        BackgroundColor(DARK_GREY.into()),
+        Children::spawn((
+            Spawn((
+                Label,
+                Text::new("Sound"),
+                TextFont {
+                    font: font.clone_weak(),
+                    font_size: 32.0,
+                    font_smoothing: bevy::text::FontSmoothing::None,
+                    ..default()
+                },
+                TextColor(TEXT_COLOR),
             )),
-        ))
-        .id();
+            SpawnWith(move |parent: &mut ChildSpawner| {
+                (0..=10).for_each(|level| {
+                    let mut entity = parent.spawn((
+                        RadioSetting::Sound,
+                        Button,
+                        Node {
+                            width: Val::Px(32.0),
+                            height: Val::Px(48.0),
+                            margin: UiRect::all(Val::Px(8.0)),
+                            ..default()
+                        },
+                        BackgroundColor(NORMAL_BUTTON),
+                        RadioValue(level),
+                    ));
 
-    let navigation_node = commands
-        .spawn((
-            settings_node.clone(),
-            BackgroundColor(SLATE_GRAY.into()),
-            children![
-                (
-                    Button,
-                    button_node.clone(),
-                    BackgroundColor(NORMAL_BUTTON),
-                    MenuButtonAction::BackToMainMenu,
-                    children![
-                        // (ImageNode::new(right_icon), button_icon_node.clone()),
-                        (
-                            Text::new("Back"),
-                            button_text_font.clone(),
-                            TextColor(TEXT_COLOR),
-                        ),
-                    ]
-                ),
-                (
-                    Button,
-                    button_node.clone(),
-                    BackgroundColor(NORMAL_BUTTON),
-                    MenuButtonAction::SaveSettings,
-                    children![
-                        // (ImageNode::new(wrench_icon), button_icon_node.clone()),
-                        (
-                            Text::new("Save & Exit"),
-                            button_text_font.clone(),
-                            TextColor(TEXT_COLOR),
-                        ),
-                    ]
-                ),
-            ],
-        ))
-        .id();
+                    let volume = 0.1 * level as f32;
+                    if sound_vol == volume {
+                        entity.insert(SelectedOption);
+                    }
+                });
+            }),
+        )),
+    ));
 
-    commands.entity(root_node).add_children(&[
-        key_bindings_node,
-        music_volume_node,
-        sound_volume_node,
-        navigation_node,
-    ]);
+    commands.spawn((
+        Name::new("Navigation"),
+        ChildOf(settings_root),
+        settings_node.clone(),
+        BackgroundColor(SLATE_GRAY.into()),
+        children![
+            (
+                Button,
+                button_node.clone(),
+                BackgroundColor(NORMAL_BUTTON),
+                NavigationAction::MainMenu,
+                children![
+                    // (ImageNode::new(right_icon), button_icon_node.clone()),
+                    (
+                        Text::new("Back"),
+                        button_text_font.clone(),
+                        TextColor(TEXT_COLOR),
+                    ),
+                ]
+            ),
+            (
+                Button,
+                button_node.clone(),
+                BackgroundColor(NORMAL_BUTTON),
+                SaveButton,
+                children![
+                    // (ImageNode::new(wrench_icon), button_icon_node.clone()),
+                    (
+                        Text::new("Save & Exit"),
+                        button_text_font.clone(),
+                        TextColor(TEXT_COLOR),
+                    ),
+                ]
+            ),
+        ],
+    ));
 }
 
 #[derive(Debug, Component)]
@@ -422,14 +419,21 @@ struct TimePlayed;
 #[derive(Debug, Component)]
 struct StartButton;
 
-fn setup_data_menu(mut commands: Commands, progress_storage: Res<Persistent<ProgressStorage>>) {
+fn setup_data_menu(
+    mut commands: Commands,
+    progress_storage: Res<Persistent<ProgressStorage>>,
+    font: Res<StandardFont>,
+) {
     let button_text_font = TextFont {
+        font: font.clone_weak(),
         font_size: 32.0,
+        font_smoothing: bevy::text::FontSmoothing::None,
         ..default()
     };
 
-    let root_node = commands
+    let data_root = commands
         .spawn((
+            Name::new("Data Menu"),
             Node {
                 width: Val::Percent(100.0),
                 height: Val::Percent(100.0),
@@ -445,7 +449,8 @@ fn setup_data_menu(mut commands: Commands, progress_storage: Res<Persistent<Prog
     // Slot Selection
     let slot_selection = commands
         .spawn((
-            ChildOf(root_node),
+            Name::new("Slot Selection"),
+            ChildOf(data_root),
             Node {
                 width: Val::Percent(50.0),
                 height: Val::Percent(70.0),
@@ -468,7 +473,7 @@ fn setup_data_menu(mut commands: Commands, progress_storage: Res<Persistent<Prog
                     let seconds = progress.time_played.as_secs();
                     let minutes = seconds / 60;
                     let hours = minutes / 60;
-                    format!("{:02}:{:02}:{:02}", hours, minutes % 60, seconds % 3600)
+                    format!("{:02}:{:02}:{:02}", hours, minutes % 60, seconds % 60)
                 })
                 .unwrap_or("Empty".to_string());
 
@@ -490,7 +495,6 @@ fn setup_data_menu(mut commands: Commands, progress_storage: Res<Persistent<Prog
                     ),
                     (
                         TimePlayed,
-                        slot,
                         Text::new(time_played),
                         button_text_font.clone(),
                         TextColor(TEXT_COLOR),
@@ -520,7 +524,7 @@ fn setup_data_menu(mut commands: Commands, progress_storage: Res<Persistent<Prog
 
     // Navigation
     commands.spawn((
-        ChildOf(root_node),
+        ChildOf(data_root),
         Node {
             width: Val::Percent(50.0),
             height: Val::Percent(10.0),
@@ -540,7 +544,7 @@ fn setup_data_menu(mut commands: Commands, progress_storage: Res<Persistent<Prog
                 ..default()
             },
             BackgroundColor(NORMAL_BUTTON),
-            MenuButtonAction::BackToMainMenu,
+            NavigationAction::MainMenu,
             children![
                 // (ImageNode::new(right_icon), button_icon_node.clone()),
                 (
@@ -580,26 +584,27 @@ fn start_game(mut app_state: ResMut<NextState<AppState>>) {
     });
 }
 
-// This system handles changing all buttons color based on mouse interaction
-fn button_system(
+fn update_button_color(
     mut interaction_query: Query<
-        (&Interaction, &mut BackgroundColor, Option<&SelectedOption>),
+        (&mut BackgroundColor, &Interaction, Has<SelectedOption>),
         (Changed<Interaction>, With<Button>),
     >,
 ) {
-    for (interaction, mut background_color, selected) in &mut interaction_query {
-        *background_color = match (*interaction, selected) {
-            (Interaction::Pressed, _) | (Interaction::None, Some(_)) => PRESSED_BUTTON.into(),
-            (Interaction::Hovered, Some(_)) => HOVERED_PRESSED_BUTTON.into(),
-            (Interaction::Hovered, None) => HOVERED_BUTTON.into(),
-            (Interaction::None, None) => NORMAL_BUTTON.into(),
-        }
-    }
+    interaction_query
+        .iter_mut()
+        .for_each(|(mut background_color, interaction, selected)| {
+            *background_color = match (*interaction, selected) {
+                (Interaction::Pressed, _) | (Interaction::None, true) => PRESSED_BUTTON.into(),
+                (Interaction::Hovered, true) => HOVERED_PRESSED_BUTTON.into(),
+                (Interaction::Hovered, false) => HOVERED_BUTTON.into(),
+                (Interaction::None, false) => NORMAL_BUTTON.into(),
+            }
+        });
 }
 
 // This system updates the settings when a new value for a setting is selected, and marks
 // the button as the one currently selected
-fn radio_settings_system(
+fn update_radio_buttons(
     q_interaction: Query<
         (Entity, &Interaction, &RadioSetting),
         (Changed<Interaction>, With<Button>),
@@ -608,7 +613,7 @@ fn radio_settings_system(
     mut commands: Commands,
 ) {
     q_interaction
-        .iter()
+        .into_iter()
         .filter_map(|(button, interaction, setting)| {
             matches!(interaction, Interaction::Pressed).then_some((button, setting))
         })
@@ -616,8 +621,8 @@ fn radio_settings_system(
             if let Some((previous_button, mut previous_button_color)) = q_selected
                 .iter_mut()
                 .filter(|(button, ..)| *button != current_button)
-                .find_map(|(button, color, previous_setting)| {
-                    (previous_setting == current_setting).then_some((button, color))
+                .find_map(|(button, color, setting)| {
+                    (setting == current_setting).then_some((button, color))
                 })
             {
                 *previous_button_color = NORMAL_BUTTON.into();
@@ -628,14 +633,23 @@ fn radio_settings_system(
 }
 
 fn save_settings(
-    mut settings: ResMut<Persistent<Settings>>,
+    save_button: Single<&Interaction, (Changed<Interaction>, With<SaveButton>)>,
     q_radio_settings: Query<(&RadioSetting, &RadioValue), With<SelectedOption>>,
+    mut settings: ResMut<Persistent<Settings>>,
+    mut menu_state: ResMut<NextState<MenuState>>,
 ) {
-    for (setting, RadioValue(value)) in q_radio_settings {
-        match setting {
+    if !matches!(save_button.into_inner(), Interaction::Pressed) {
+        return;
+    }
+
+    q_radio_settings
+        .into_iter()
+        .for_each(|(setting, RadioValue(value))| match setting {
             RadioSetting::Sound => settings.sound_vol = 0.1 * *value as f32,
             RadioSetting::Music => settings.music_vol = 0.1 * *value as f32,
-        }
-    }
+        });
+
     settings.persist().expect("Settings should be loaded");
+
+    menu_state.set(MenuState::Main);
 }
