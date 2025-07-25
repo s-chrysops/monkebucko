@@ -553,13 +553,13 @@ fn setup_data_menu(mut commands: Commands, progress_storage: Res<Persistent<Prog
 
 fn setup_progress(
     q_start: Query<(&Interaction, &SaveSlot), With<StartButton>>,
-    progress_storage: ResMut<Persistent<ProgressStorage>>,
+    progress_storage: Res<Persistent<ProgressStorage>>,
     mut commands: Commands,
 ) {
     if let Some(save_slot) = q_start.iter().find_map(|(interaction, save_slot)| {
         matches!(interaction, Interaction::Pressed).then_some(save_slot)
     }) {
-        let progress = match &progress_storage[*save_slot] {
+        let progress = match progress_storage.get_slot(*save_slot) {
             Some(progress) => progress.clone(),
             None => Progress::default(),
         };

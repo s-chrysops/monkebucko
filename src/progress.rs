@@ -38,7 +38,7 @@ pub fn save_progress_to_disk(
 ) {
     storage
         .update(|saves| {
-            saves[*save_slot] = Some(progress.clone());
+            *saves.get_slot_mut(*save_slot) = Some(progress.clone());
         })
         .expect("Failed to save");
 }
@@ -61,23 +61,21 @@ impl std::fmt::Display for SaveSlot {
     }
 }
 
-impl std::ops::Index<SaveSlot> for [Option<Progress>] {
-    type Output = Option<Progress>;
-
-    fn index(&self, index: SaveSlot) -> &Self::Output {
-        &self[index as usize]
-    }
-}
-
-impl std::ops::IndexMut<SaveSlot> for [Option<Progress>] {
-    fn index_mut(&mut self, index: SaveSlot) -> &mut Self::Output {
-        &mut self[index as usize]
-    }
-}
-
 #[derive(Debug, Default, Deref, DerefMut, Resource, Reflect, Serialize, Deserialize)]
 #[reflect(Resource, Serialize, Deserialize)]
 pub struct ProgressStorage([Option<Progress>; 3]);
+
+impl ProgressStorage {
+    pub fn get_slot(&self, slot: SaveSlot) -> &Option<Progress> {
+        // SAFETY: ['SaveSlot'] varient count MUST not exceed ['ProgressStorage'] array len (3)
+        unsafe { self.0.get_unchecked(slot as usize) }
+    }
+
+    pub fn get_slot_mut(&mut self, slot: SaveSlot) -> &mut Option<Progress> {
+        // SAFETY: ['SaveSlot'] varient count MUST not exceed ['ProgressStorage'] array len (3)
+        unsafe { self.0.get_unchecked_mut(slot as usize) }
+    }
+}
 
 #[derive(Debug, Clone, Deref, DerefMut, Resource, Reflect, Serialize, Deserialize)]
 #[reflect(Resource, Serialize, Deserialize)]
